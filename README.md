@@ -211,9 +211,17 @@ mcp_server/
 ├─ variants/              # variant Dockerfiles (PHP, Node, etc.)
 │   ├─ Dockerfile.php
 │   └─ Dockerfile.node
+├─ tests/                # pytest test suite
+│   ├─ conftest.py
+│   ├─ test_models.py
+│   ├─ test_executor.py
+│   ├─ test_registry.py
+│   ├─ test_api.py
+│   └─ test_client.py
 ├─ docker-compose.yml     # easy local run with volumes
 ├─ .env.example           # Docker env var template (webhook URL, etc.)
-├─ .dockerignore          # excludes venv, secrets, etc.
+├─ .dockerignore          # excludes venv, secrets, tests, etc.
+├─ pyproject.toml         # package metadata + pytest config
 ├─ requirements.txt
 ├─ planning.md
 └─ implementation.md
@@ -353,6 +361,40 @@ USER mcp
 ```
 
 Then add a `registry/ruby_eval.yaml` pointing at `/usr/bin/ruby`.
+
+## Testing
+
+The project includes a full pytest suite (129 tests) covering models,
+executor, registry, API endpoints, and the client library.
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Run the full suite
+pytest
+
+# Run with verbose output
+pytest -v
+
+# Run a single test module
+pytest tests/test_executor.py
+```
+
+### Test layout
+
+```
+tests/
+├─ conftest.py          # shared fixtures (temp registry dirs, TestClient)
+├─ test_models.py       # ArgSpec, CommandSchema, ValidationResult
+├─ test_executor.py     # _cast, _validate_and_build, run_command
+├─ test_registry.py     # _load_file, load_registry, validate_registry
+├─ test_api.py          # HTTP endpoints via FastAPI TestClient
+└─ test_client.py       # MCPClient via ASGI transport
+```
+
+The flag-default regression (discord's `-q` defaulting to `true`) is
+covered by `test_executor.py::TestValidateAndBuild::test_flag_default_true_*`.
 
 ## Security notes
 

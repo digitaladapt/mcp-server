@@ -8,6 +8,7 @@ Exposes:
   POST /execute           – validate payload and run a command
 """
 
+import logging
 from typing import List
 
 from fastapi import FastAPI, HTTPException
@@ -15,6 +16,14 @@ from fastapi import FastAPI, HTTPException
 from .executor import run_command
 from .models import CommandSchema, ExecuteRequest, ExecuteResult, ValidationResult
 from .registry import get_command_schema, list_commands, validate_registry
+
+# Configure logging so registry warnings (and any other log messages)
+# are visible alongside uvicorn's output.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:     %(name)s — %(message)s",
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="MCP Server",

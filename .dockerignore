@@ -23,11 +23,13 @@ __pycache__/
 .DS_Store
 
 # Test artifacts
-test_*.py
-*_test.py
+tests/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Dev config
+pyproject.toml
 
 # Logs
 *.log
