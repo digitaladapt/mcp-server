@@ -1,11 +1,12 @@
 """Command registry loader.
 
-Scans ``~/projects/mcp_server/registry/`` for ``.yaml``/``.yml``/``.json``
-files on import and parses each into a :class:`CommandSchema`, keyed by
-``schema.name``.
+Scans ``registry/`` for ``.yaml``/``.yml``/``.json`` files on import and
+parses each into a :class:`CommandSchema`, keyed by ``schema.name``.
 
-Duplicate names raise ``ValueError`` at load time so we fail fast rather
-than silently shadowing a command.
+Invalid files and duplicate command names are logged as warnings and
+skipped so the server stays healthy even if one definition is broken.
+Use :func:`validate_registry` or ``GET /validate`` to catch problems
+before restarting.
 """
 
 from __future__ import annotations

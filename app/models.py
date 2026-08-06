@@ -1,6 +1,6 @@
 """Pydantic models for command schemas and request/response payloads.
 
-Defined in M3 but used by the registry loader (M2) and executor (M4).
+Used by the registry loader, executor, API layer, and client library.
 """
 
 from typing import Any, Dict, List, Optional
