@@ -1,14 +1,14 @@
-# hello.yaml – a simple greeting command using echo.
+# hello.yaml – a simple greeting command using scripts/hello.sh.
 
 name: hello
 description: Prints a friendly greeting to a name.
-executable: /bin/echo
+executable: scripts/hello.sh
 args:
+  - name: --upper
+    type: flag
+    required: false
+    help: Print the greeting in upper-case.
   - name: name
     type: string
     required: true
     help: Name of the person to greet.
-  - name: --upper
-    type: flag
-    required: false
-    help: Print the greeting in upper-case (requires `tr` via shell).

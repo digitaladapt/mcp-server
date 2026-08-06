@@ -11,6 +11,7 @@ than silently shadowing a command.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 from typing import List, Optional
@@ -18,6 +19,8 @@ from typing import List, Optional
 import yaml
 
 from .models import CommandSchema
+
+logger = logging.getLogger(__name__)
 
 # Project root (the parent of the ``app/`` package).
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -70,12 +73,18 @@ def load_registry(registry_dir: Path = REGISTRY_DIR) -> None:
             continue
         if path.suffix.lower() not in (".yaml", ".yml", ".json"):
             continue
-        schema = _load_file(path)
+        try:
+            schema = _load_file(path)
+        except Exception as exc:
+            logger.warning("Skipping invalid registry file %s: %s", path.name, exc)
+            continue
         if schema.name in COMMANDS:
-            raise ValueError(
-                f"Duplicate command name '{schema.name}' "
-                f"from {path.name}"
+            logger.warning(
+                "Skipping duplicate command '%s' from %s "
+                "(already defined in another file)",
+                schema.name, path.name,
             )
+            continue
         COMMANDS[schema.name] = schema
 
 

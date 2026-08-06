@@ -22,14 +22,15 @@
 - `uvicorn[standard]`
 - `pydantic`
 - `pyyaml` (for YAML command definitions)
-- `watchdog` (optional, for hot‑reloading registry changes)
 
 Install with:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install fastapi uvicorn[standard] pydantic pyyaml watchdog
+pip install -r requirements.txt
 ```
+
+> Registry changes require a server restart — there is no hot-reload.
 
 ## Step‑by‑Step Milestones
 ### M2 – Command Registry Loader
