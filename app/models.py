@@ -8,6 +8,25 @@ from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, field_validator
 
 
+class ValidationIssue(BaseModel):
+    """A single issue found when validating a registry file."""
+
+    file: str
+    status: str  # "ok", "error", "warning"
+    command: Optional[str] = None
+    message: Optional[str] = None
+
+
+class ValidationResult(BaseModel):
+    """Overall result of validating the registry."""
+
+    valid: bool
+    total: int
+    errors: int
+    warnings: int
+    issues: List[ValidationIssue] = []
+
+
 class ArgSpec(BaseModel):
     """Specification for a single CLI argument.
 

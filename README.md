@@ -27,12 +27,13 @@ The server now listens on `http://127.0.0.1:8000`.
 
 ## API
 
-| Method | Path                 | Description                          |
-|--------|----------------------|--------------------------------------|
-| GET    | `/health`            | Liveness probe                       |
-| GET    | `/commands`          | List all registered commands         |
-| GET    | `/commands/{name}`   | Retrieve one command's schema        |
-| POST   | `/execute`           | Validate arguments and run a command |
+| Method | Path                 | Description                                  |
+|--------|----------------------|----------------------------------------------|
+| GET    | `/health`            | Liveness probe                               |
+| GET    | `/commands`          | List all registered commands                 |
+| GET    | `/commands/{name}`   | Retrieve one command's schema                |
+| GET    | `/validate`          | Validate all registry files (detailed report) |
+| POST   | `/execute`           | Validate arguments and run a command         |
 
 ### Example
 
@@ -50,6 +51,51 @@ Response:
 ```json
 {"stdout": "World\n", "stderr": "", "exit_code": 0, "success": true}
 ```
+
+## Validating the registry
+
+Before restarting the server after editing registry files, you can
+validate them — like `caddy validate` does for Caddy's config.
+
+### CLI
+
+```bash
+python -m app.validate
+```
+
+Optionally pass a custom registry directory:
+
+```bash
+python -m app.validate /path/to/registry
+```
+
+Output:
+```
+MCP Server registry validation: /app/registry
+
+  ✓ discord.yaml → discord
+  ✓ hello.yaml → hello
+  ✗ broken.yaml: mapping values are not allowed here
+  ⚠ noprogram.yaml → noprogram: Executable not found: /usr/bin/nonexistent
+
+  4 file(s) checked · 1 error(s) · 1 warning(s)
+
+  Registry has errors — fix them before restarting.
+```
+
+Exit codes:
+- `0` — all files valid (warnings are OK)
+- `1` — one or more files have errors
+- `2` — registry directory does not exist
+
+### HTTP
+
+```bash
+curl http://127.0.0.1:8000/validate
+```
+
+Returns a JSON report with per-file results, including duplicate name
+detection and executable existence checks.
 
 ## Registering a command
 
@@ -149,7 +195,8 @@ mcp_server/
 │   ├─ main.py          # FastAPI app + endpoints
 │   ├─ models.py        # Pydantic schemas
 │   ├─ executor.py      # validation + subprocess wrapper
-│   ├─ registry.py      # YAML/JSON command loader
+│   ├─ registry.py      # YAML/JSON command loader + validate_registry()
+│   ├─ validate.py      # `python -m app.validate` CLI
 │   └─ client.py        # httpx client library (M6)
 ├─ registry/            # command definitions (one file per command)
 │   ├─ hello.yaml
