@@ -81,11 +81,27 @@ class MCPClient:
             )
         return resp.json()
 
-    def _post(self, path: str, json: dict[str, Any]) -> Any:
-        resp = self._client.post(path, json=json)
+    def _post(self, path: str, json: dict[str, Any] | None = None) -> Any:
+        resp = self._client.post(path, json=json or {})
         if resp.status_code >= 400:
             raise MCPError(
                 f"POST {path} -> {resp.status_code}: {resp.text}"
+            )
+        return resp.json()
+
+    def _put(self, path: str, json: dict[str, Any]) -> Any:
+        resp = self._client.put(path, json=json)
+        if resp.status_code >= 400:
+            raise MCPError(
+                f"PUT {path} -> {resp.status_code}: {resp.text}"
+            )
+        return resp.json()
+
+    def _delete(self, path: str) -> Any:
+        resp = self._client.delete(path)
+        if resp.status_code >= 400:
+            raise MCPError(
+                f"DELETE {path} -> {resp.status_code}: {resp.text}"
             )
         return resp.json()
 
@@ -114,6 +130,92 @@ class MCPClient:
             "/execute",
             {"command": command, "arguments": arguments},
         )
+
+    # -- calendar / event / task API ----------------------------------
+
+    def list_calendars(self) -> dict[str, Any]:
+        """List all accessible CalDAV calendars."""
+        return self._get("/calendars")
+
+    def list_events(
+        self,
+        start: str | None = None,
+        end: str | None = None,
+    ) -> dict[str, Any]:
+        """List calendar events, optionally filtered by date range.
+
+        Parameters
+        ----------
+        start:
+            ISO 8601 datetime/date string (e.g. ``"2026-01-15T00:00:00"``).
+        end:
+            ISO 8601 datetime/date string.
+        """
+        params: dict[str, str] = {}
+        if start:
+            params["start"] = start
+        if end:
+            params["end"] = end
+        resp = self._client.get("/events", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(
+                f"GET /events -> {resp.status_code}: {resp.text}"
+            )
+        return resp.json()
+
+    def get_event(self, uid: str) -> dict[str, Any]:
+        """Get a single event by UID."""
+        return self._get(f"/events/{uid}")
+
+    def create_event(self, **fields: Any) -> dict[str, Any]:
+        """Create a new event on the editable calendar.
+
+        Keyword arguments map to :class:`~app.caldav_models.CreateEventRequest`
+        fields: ``summary`` (required), ``start``, ``end``, ``description``,
+        ``location``, ``all_day``.
+        """
+        return self._post("/events", fields)
+
+    def update_event(self, uid: str, **fields: Any) -> dict[str, Any]:
+        """Update an existing event on the editable calendar.
+
+        Keyword arguments map to :class:`~app.caldav_models.UpdateEventRequest`
+        fields: ``summary``, ``description``, ``start``, ``end``, ``location``,
+        ``all_day``.
+        """
+        return self._put(f"/events/{uid}", fields)
+
+    def delete_event(self, uid: str) -> dict[str, Any]:
+        """Delete an event from the editable calendar."""
+        return self._delete(f"/events/{uid}")
+
+    def list_tasks(self) -> dict[str, Any]:
+        """List calendar tasks across all accessible calendars."""
+        return self._get("/tasks")
+
+    def get_task(self, uid: str) -> dict[str, Any]:
+        """Get a single task by UID."""
+        return self._get(f"/tasks/{uid}")
+
+    def create_task(self, **fields: Any) -> dict[str, Any]:
+        """Create a new task on the editable calendar.
+
+        Keyword arguments map to :class:`~app.caldav_models.CreateTaskRequest`
+        fields: ``summary`` (required), ``description``, ``due``, ``priority``.
+        """
+        return self._post("/tasks", fields)
+
+    def update_task(self, uid: str, **fields: Any) -> dict[str, Any]:
+        """Update an existing task on the editable calendar.
+
+        Keyword arguments map to :class:`~app.caldav_models.UpdateTaskRequest`
+        fields: ``summary``, ``description``, ``due``, ``priority``, ``status``.
+        """
+        return self._put(f"/tasks/{uid}", fields)
+
+    def delete_task(self, uid: str) -> dict[str, Any]:
+        """Delete a task from the editable calendar."""
+        return self._delete(f"/tasks/{uid}")
 
     def tool(self, command: str) -> Callable[..., dict[str, Any]]:
         """Return a callable bound to *command*.

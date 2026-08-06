@@ -13,6 +13,7 @@ import logging
 from fastapi import Depends, FastAPI, HTTPException
 
 from .auth import verify_api_key
+from .caldav_routes import router as caldav_router
 from .executor import run_command
 from .models import CommandSchema, ExecuteRequest, ExecuteResult, ValidationResult
 from .registry import get_command_schema, list_commands, validate_registry
@@ -28,8 +29,11 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="MCP Server",
     description="Modular Command Provider – exposes CLI commands as model tools.",
-    version="0.2.0",
+    version="0.3.0",
 )
+
+# Register the CalDAV calendar router (endpoints return 503 if unconfigured).
+app.include_router(caldav_router)
 
 
 @app.get("/health")

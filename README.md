@@ -39,11 +39,22 @@ If `MCP_API_KEY` is set, all endpoints except `/health` require an
 
 | Method | Path                 | Description                                  |
 |--------|----------------------|----------------------------------------------|
-| GET    | `/health`            | Liveness probe                               |
+| GET    | `/health`            | Liveness probe (no auth required)            |
 | GET    | `/commands`          | List all registered commands                 |
 | GET    | `/commands/{name}`   | Retrieve one command's schema                |
 | GET    | `/validate`          | Validate all registry files (detailed report) |
 | POST   | `/execute`           | Validate arguments and run a command         |
+| GET    | `/calendars`         | List accessible CalDAV calendars             |
+| GET    | `/events`            | List calendar events (optional date range)   |
+| GET    | `/events/{uid}`      | Get a single event by UID                    |
+| POST   | `/events`            | Create an event (editable calendar only)     |
+| PUT    | `/events/{uid}`      | Update an event (editable calendar only)     |
+| DELETE | `/events/{uid}`      | Delete an event (editable calendar only)     |
+| GET    | `/tasks`             | List calendar tasks (VTODO)                  |
+| GET    | `/tasks/{uid}`       | Get a single task by UID                     |
+| POST   | `/tasks`             | Create a task (editable calendar only)       |
+| PUT    | `/tasks/{uid}`       | Update a task (editable calendar only)       |
+| DELETE | `/tasks/{uid}`       | Delete a task (editable calendar only)       |
 
 ### Example
 
@@ -212,11 +223,14 @@ mcp_server/
 │   ├─ __init__.py      # package marker
 │   ├─ main.py          # FastAPI app + endpoints
 │   ├─ auth.py          # API key authentication dependency
-│   ├─ models.py        # Pydantic schemas
+│   ├─ models.py        # Pydantic schemas (commands)
 │   ├─ executor.py      # validation + subprocess wrapper
 │   ├─ registry.py      # YAML/JSON command loader + validate_registry()
 │   ├─ validate.py      # `python -m app.validate` CLI
-│   └─ client.py        # httpx client library
+│   ├─ client.py        # httpx client library (commands + calendar API)
+│   ├─ caldav_models.py # Pydantic models for calendar events/tasks
+│   ├─ caldav_service.py # CalDAV service (1 editable + N read-only calendars)
+│   └─ caldav_routes.py # FastAPI router for /calendars, /events, /tasks
 ├─ registry/            # command definitions (one file per command)
 │   ├─ log.yaml          # logging command
 │   ├─ log_read.yaml     # read log tail
@@ -237,7 +251,8 @@ mcp_server/
 │   ├─ test_registry.py
 │   ├─ test_api.py
 │   ├─ test_client.py
-│   └─ test_auth.py
+│   ├─ test_auth.py
+│   └─ test_caldav.py
 ├─ docker-compose.yml     # easy local run with volumes
 ├─ .env.example           # Docker env var template (webhook URL, etc.)
 ├─ .dockerignore          # excludes venv, secrets, tests, etc.
@@ -268,6 +283,88 @@ docker compose up -d   # or uvicorn directly
 `discord.sh` reads `config.sh` from its own directory, so the file must be
 at `scripts/config.sh`.  If `config.sh` is missing, the script falls back
 to environment variables (`DISCORD_GENERAL_HOOK`, etc.).
+
+## Logging
+
+## CalDAV Calendar
+
+The server can connect to a CalDAV server (e.g. Radicale, Baikal, Nextcloud)
+to manage calendar events and tasks.  The design uses **one editable
+calendar** (where events and tasks can be created, updated, and deleted)
+and **multiple read-only calendars** (visible but not writable).
+
+All events and tasks carry an `editable` flag and `calendar_name`, so the
+model can see the full unified calendar view but is isolated from
+accidentally modifying calendars it shouldn't touch.
+
+### Configuration
+
+Set these environment variables (or uncomment in `.env`):
+
+```
+CALDAV_URL=https://caldav.example.com/dav
+CALDAV_USERNAME=user
+CALDAV_PASSWORD=secret
+CALDAV_EDITABLE_CALENDAR=Lyra
+# Optional: comma-separated list of read-only calendar names to include.
+# If empty, all calendars except the editable one are included as read-only.
+CALDAV_READONLY_CALENDARS=Personal,Work
+```
+
+When `CALDAV_URL` is not set, all calendar endpoints return `503 Service
+Unavailable`.
+
+### Features
+
+- **Events (VEVENT):** list (with date-range filtering), get by UID,
+  create, update, delete — all-day and timed events supported.
+- **Tasks (VTODO):** list, get by UID, create, update, delete — with
+  priority, due date, and status management.
+- **Connection recovery:** if the CalDAV server becomes unreachable
+  mid-operation, the service automatically resets its connection and
+  retries once.
+- **Calendar caching:** the calendar list is fetched once per connection
+  and cached, avoiding redundant server round-trips.
+- **Explicit UUIDs:** created events and tasks always get a `uuid4` UID,
+  guaranteeing they can be updated or deleted immediately after creation.
+
+### Client library
+
+The `MCPClient` also provides typed convenience methods for the calendar
+API:
+
+```python
+from app.client import MCPClient
+
+mc = MCPClient("http://127.0.0.1:8000", api_key="your-secret-key")
+
+# List calendars
+cals = mc.list_calendars()
+for cal in cals["calendars"]:
+    print(f"  {cal['name']} {'✏️' if cal['editable'] else '👁️'}")
+
+# List events in a date range
+events = mc.list_events(start="2026-01-01", end="2026-02-01")
+for ev in events["events"]:
+    print(f"  {ev['start']} {ev['summary']}")
+
+# Create an event
+mc.create_event(
+    summary="Team standup",
+    start="2026-01-15T09:00:00",
+    end="2026-01-15T09:30:00",
+)
+
+# Create a task
+mc.create_task(summary="Review PR", priority=3, due="2026-01-20")
+
+# Update a task status
+mc.update_task("<uid>", status="COMPLETED")
+
+# Delete
+mc.delete_event("<uid>")
+mc.delete_task("<uid>")
+```
 
 ## Logging
 
@@ -416,8 +513,9 @@ Then add a `registry/ruby_eval.yaml` pointing at `/usr/bin/ruby`.
 
 ## Testing
 
-The project includes a full pytest suite (149 tests) covering models,
-executor, registry, API endpoints, client library, and authentication.
+The project includes a full pytest suite (233 tests) covering models,
+executor, registry, API endpoints, client library, authentication, and
+CalDAV calendar operations.
 
 ```bash
 # Install dev dependencies
@@ -442,7 +540,9 @@ tests/
 ├─ test_executor.py     # _cast, _validate_and_build, run_command
 ├─ test_registry.py     # _load_file, load_registry, validate_registry
 ├─ test_api.py          # HTTP endpoints via FastAPI TestClient
-└─ test_client.py       # MCPClient via ASGI transport
+├─ test_client.py       # MCPClient via ASGI transport
+├─ test_auth.py         # API key authentication (enabled/disabled/edge cases)
+└─ test_caldav.py       # CalDAV models, service, API endpoints, client (mocked)
 ```
 
 The flag-default regression (discord's `-q` defaulting to `true`) is
