@@ -231,6 +231,136 @@ class MCPClient:
         _call.__qualname__ = f"MCPClient.tool<{command}>"
         return _call
 
+    # -- Gitea API ----------------------------------------------------
+
+    def _patch(self, path: str, json: dict[str, Any]) -> Any:
+        resp = self._client.patch(path, json=json)
+        if resp.status_code >= 400:
+            raise MCPError(
+                f"PATCH {path} -> {resp.status_code}: {resp.text}"
+            )
+        return resp.json()
+
+    def list_issues(self, **params: Any) -> dict[str, Any]:
+        """List issues in the (default) repository.
+
+        Keyword arguments are passed as query params: ``state``, ``labels``,
+        ``owner``, ``repo``, ``page``, ``limit``.
+        """
+        resp = self._client.get("/issues", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(f"GET /issues -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def get_issue(self, index: int, **params: Any) -> dict[str, Any]:
+        """Get a single issue by number."""
+        resp = self._client.get(f"/issues/{index}", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(f"GET /issues/{index} -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def create_issue(self, **fields: Any) -> dict[str, Any]:
+        """Create a new issue. Fields: ``title`` (required), ``body``, ``labels``, ``assignees``, ``milestone``."""
+        return self._post("/issues", fields)
+
+    def close_issue(self, index: int, **params: Any) -> dict[str, Any]:
+        """Close an issue by number."""
+        return self._patch(f"/issues/{index}", {"state": "closed"})
+
+    def list_branches(self, **params: Any) -> dict[str, Any]:
+        """List branches in the (default) repository."""
+        resp = self._client.get("/branches", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(f"GET /branches -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def create_branch(self, name: str, from_ref: str = "", **params: Any) -> dict[str, Any]:
+        """Create a new branch. ``from_ref`` defaults to the repo's default branch."""
+        body: dict[str, Any] = {"name": name}
+        if from_ref:
+            body["from_ref"] = from_ref
+        body.update(params)
+        return self._post("/branches", body)
+
+    def delete_branch(self, name: str, **params: Any) -> dict[str, Any]:
+        """Delete a branch by name."""
+        resp = self._client.delete(f"/branches/{name}", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(f"DELETE /branches/{name} -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def list_prs(self, **params: Any) -> dict[str, Any]:
+        """List pull requests. Params: ``state``, ``owner``, ``repo``, ``page``, ``limit``."""
+        resp = self._client.get("/prs", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(f"GET /prs -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def get_pr(self, index: int, **params: Any) -> dict[str, Any]:
+        """Get a single pull request by number."""
+        resp = self._client.get(f"/prs/{index}", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(f"GET /prs/{index} -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def create_pr(self, title: str, head: str, base: str, body: str = "", **params: Any) -> dict[str, Any]:
+        """Create a pull request."""
+        payload: dict[str, Any] = {"title": title, "head": head, "base": base}
+        if body:
+            payload["body"] = body
+        payload.update(params)
+        return self._post("/prs", payload)
+
+    def merge_pr(self, index: int, method: str = "merge", message: str = "", **params: Any) -> dict[str, Any]:
+        """Merge a pull request. ``method``: merge, squash, rebase, rebase-merge."""
+        payload: dict[str, Any] = {"do": method}
+        if message:
+            payload["merge_commit_message"] = message
+        payload.update(params)
+        return self._post(f"/prs/{index}/merge", payload)
+
+    def list_actions(self, **params: Any) -> dict[str, Any]:
+        """List CI workflow runs."""
+        resp = self._client.get("/actions", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(f"GET /actions -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def get_commit_statuses(self, sha: str, **params: Any) -> dict[str, Any]:
+        """Get CI status checks for a commit."""
+        resp = self._client.get(f"/commits/{sha}/statuses", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(f"GET /commits/{sha}/statuses -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def list_releases(self, **params: Any) -> dict[str, Any]:
+        """List releases in the (default) repository."""
+        resp = self._client.get("/releases", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(f"GET /releases -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def create_release(self, tag: str, **fields: Any) -> dict[str, Any]:
+        """Create a release. Fields: ``tag`` (required), ``name``, ``body``, ``target``, ``draft``, ``prerelease``."""
+        body: dict[str, Any] = {"tag_name": tag}
+        body.update(fields)
+        return self._post("/releases", body)
+
+    def delete_release(self, release_id: int, **params: Any) -> dict[str, Any]:
+        """Delete a release by ID."""
+        resp = self._client.delete(f"/releases/{release_id}", params=params)
+        if resp.status_code >= 400:
+            raise MCPError(f"DELETE /releases/{release_id} -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
+    def compare(self, base: str, head: str, owner: str | None = None, repo: str | None = None) -> dict[str, Any]:
+        """Compare two refs in a repository."""
+        path = f"/repos/{owner or ''}/{repo or ''}/compare?base={base}&head={head}"
+        resp = self._client.get(path)
+        if resp.status_code >= 400:
+            raise MCPError(f"GET compare -> {resp.status_code}: {resp.text}")
+        return resp.json()
+
     # -- context-manager sugar -----------------------------------------
 
     def close(self) -> None:
