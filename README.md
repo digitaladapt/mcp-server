@@ -152,8 +152,13 @@ mcp_server/
 ├─ registry/            # command definitions (one file per command)
 │   ├─ hello.yaml
 │   ├─ list_files.yaml
-│   └─ discord.yaml
-├─ Dockerfile             # multi-arch image definition
+│   ├─ discord.yaml
+│   ├─ php_eval.yaml     # PHP variant example
+│   └─ node_run.yaml     # Node variant example
+├─ Dockerfile             # multi-arch base image definition
+├─ variants/              # variant Dockerfiles (PHP, Node, etc.)
+│   ├─ Dockerfile.php
+│   └─ Dockerfile.node
 ├─ docker-compose.yml     # easy local run with volumes
 ├─ .dockerignore          # excludes venv, secrets, etc.
 ├─ requirements.txt
@@ -212,22 +217,49 @@ other secrets. The `.dockerignore` file excludes it automatically.
 
 ### Building variants (PHP, Node, etc.)
 
-The Dockerfile is designed as a base. Create a variant by layering on top:
+The base `Dockerfile` is designed as a foundation. Variant Dockerfiles live
+in `variants/` and layer additional runtimes on top:
+
+| Variant | Dockerfile | Runtime | Example commands |
+|---------|------------|---------|------------------|
+| PHP | `variants/Dockerfile.php` | PHP CLI + curl, mbstring, xml | `php_eval` |
+| Node.js | `variants/Dockerfile.node` | Node.js 22 LTS + npm | `node_run` |
+
+**Build a variant** (from repo root):
+
+```bash
+# PHP
+docker build -f variants/Dockerfile.php -t mcp-server:php .
+
+# Node.js
+docker build -f variants/Dockerfile.node -t mcp-server:node .
+```
+
+**Run a variant:**
+
+```bash
+docker run -p 8000:8000 \
+  -v ./registry:/app/registry \
+  -v ./config.sh:/app/config.sh:ro \
+  mcp-server:php
+```
+
+The base image already includes `php_eval.yaml` and `node_run.yaml` in the
+baked-in registry. These commands will only execute successfully in the
+matching variant image (the runtime must be present).
+
+**Creating your own variant:**
 
 ```dockerfile
-# Dockerfile.php
+# variants/Dockerfile.ruby
 FROM mcp-server:latest
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    php-cli && rm -rf /var/lib/apt/lists/*
+    ruby && rm -rf /var/lib/apt/lists/*
 USER mcp
 ```
 
-```bash
-docker build -f Dockerfile.php -t mcp-server:php .
-```
-
-Registry definitions can now reference `/usr/bin/php`.
+Then add a `registry/ruby_eval.yaml` pointing at `/usr/bin/ruby`.
 
 ## Security notes
 

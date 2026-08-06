@@ -1,0 +1,17 @@
+# node_run.yaml – runs a Node.js script file.
+# Only works in the mcp-server:node variant (or any image with nodejs).
+#
+# Example: mc.execute("node_run", script="/app/scripts/hello.js")
+
+name: node_run
+description: Run a Node.js script file.
+executable: /usr/bin/node
+args:
+  - name: script
+    type: string
+    required: true
+    help: Path to the JavaScript file to execute.
+  - name: --inspect
+    type: flag
+    required: false
+    help: Enable the Node.js inspector.
