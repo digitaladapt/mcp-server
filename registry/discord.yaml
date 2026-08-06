@@ -1,0 +1,59 @@
+# discord.yaml – wraps /home/user/discord.sh for sending Discord messages.
+#
+# -q (quiet) is forced ON via `default: true` so the MCP always suppresses
+# the script's input-echo.  Callers never need to (and generally shouldn't)
+# pass it.
+#
+# Argument order matters: flags come first, then the positional `message`,
+# matching how discord.sh parses its argv.
+
+name: discord
+description: Send a message to the Discord chat room.
+executable: /home/user/discord.sh
+args:
+  # --- flags (must precede the message) -------------------------------
+  - name: -q
+    type: flag
+    required: false
+    default: true
+    help: Quiet mode — suppresses echoing input back. Forced on by default.
+  - name: -a
+    type: flag
+    required: false
+    help: Send as a high-priority alert.
+  - name: -c
+    type: string
+    required: false
+    choices:
+      - maroon
+      - brown
+      - olive
+      - teal
+      - navy
+      - black
+      - red
+      - orange
+      - yellow
+      - lime
+      - green
+      - cyan
+      - blue
+      - purple
+      - magenta
+      - grey
+      - pink
+      - apricot
+      - beige
+      - mint
+      - lavender
+      - white
+    help: Color of the message embed.
+  - name: -t
+    type: string
+    required: false
+    help: Title of the message.
+  # --- positional -----------------------------------------------------
+  - name: message
+    type: string
+    required: true
+    help: The message body to send.

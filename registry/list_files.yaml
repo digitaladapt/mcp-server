@@ -1,0 +1,18 @@
+# list_files.yaml – wraps `ls` with a directory and optional flags.
+
+name: list_files
+description: List files in a directory.
+executable: /bin/ls
+args:
+  - name: path
+    type: string
+    required: false
+    help: Directory to list (defaults to current directory).
+  - name: -l
+    type: flag
+    required: false
+    help: Use long listing format.
+  - name: -a
+    type: flag
+    required: false
+    help: Show hidden entries too.
