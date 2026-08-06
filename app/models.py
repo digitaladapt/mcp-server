@@ -3,7 +3,7 @@
 Used by the registry loader, executor, API layer, and client library.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pydantic import BaseModel, field_validator
 
@@ -13,8 +13,8 @@ class ValidationIssue(BaseModel):
 
     file: str
     status: str  # "ok", "error", "warning"
-    command: Optional[str] = None
-    message: Optional[str] = None
+    command: str | None = None
+    message: str | None = None
 
 
 class ValidationResult(BaseModel):
@@ -24,7 +24,7 @@ class ValidationResult(BaseModel):
     total: int
     errors: int
     warnings: int
-    issues: List[ValidationIssue] = []
+    issues: list[ValidationIssue] = []
 
 
 class ArgSpec(BaseModel):
@@ -38,9 +38,9 @@ class ArgSpec(BaseModel):
     name: str
     type: str
     required: bool = False
-    choices: Optional[List[Any]] = None
-    default: Optional[Any] = None
-    help: Optional[str] = None
+    choices: list[Any] | None = None
+    default: Any | None = None
+    help: str | None = None
 
     @property
     def has_default(self) -> bool:
@@ -74,14 +74,14 @@ class CommandSchema(BaseModel):
     name: str
     description: str
     executable: str
-    args: List[ArgSpec] = []
+    args: list[ArgSpec] = []
 
 
 class ExecuteRequest(BaseModel):
     """Payload sent to ``POST /execute``."""
 
     command: str
-    arguments: Dict[str, Any] = {}
+    arguments: dict[str, Any] = {}
 
 
 class ExecuteResult(BaseModel):

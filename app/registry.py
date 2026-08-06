@@ -15,9 +15,9 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import List, Optional
 
 import yaml
+from pydantic import ValidationError
 
 from .models import CommandSchema, ValidationIssue, ValidationResult
 
@@ -76,7 +76,7 @@ def load_registry(registry_dir: Path = REGISTRY_DIR) -> None:
             continue
         try:
             schema = _load_file(path)
-        except Exception as exc:
+        except (ValueError, yaml.YAMLError, ValidationError) as exc:
             logger.warning("Skipping invalid registry file %s: %s", path.name, exc)
             continue
         if schema.name in COMMANDS:
@@ -125,7 +125,7 @@ def validate_registry(
         # --- parse ---
         try:
             schema = _load_file(path)
-        except Exception as exc:
+        except (ValueError, yaml.YAMLError, ValidationError) as exc:
             issues.append(ValidationIssue(
                 file=path.name,
                 status="error",
@@ -177,12 +177,12 @@ def validate_registry(
     )
 
 
-def get_command_schema(name: str) -> Optional[CommandSchema]:
+def get_command_schema(name: str) -> CommandSchema | None:
     """Return the schema for ``name`` or ``None``."""
     return COMMANDS.get(name)
 
 
-def list_commands() -> List[CommandSchema]:
+def list_commands() -> list[CommandSchema]:
     """Return all registered command schemas."""
     return list(COMMANDS.values())
 

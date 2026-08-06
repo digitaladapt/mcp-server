@@ -29,7 +29,8 @@ command, so you can do::
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from collections.abc import Callable
+from typing import Any, Self
 
 import httpx
 
@@ -66,7 +67,7 @@ class MCPClient:
             )
         return resp.json()
 
-    def _post(self, path: str, json: Dict[str, Any]) -> Any:
+    def _post(self, path: str, json: dict[str, Any]) -> Any:
         resp = self._client.post(path, json=json)
         if resp.status_code >= 400:
             raise MCPError(
@@ -76,19 +77,19 @@ class MCPClient:
 
     # -- high-level API -------------------------------------------------
 
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> dict[str, Any]:
         """Hit ``GET /health``."""
         return self._get("/health")
 
-    def list_commands(self) -> List[Dict[str, Any]]:
+    def list_commands(self) -> list[dict[str, Any]]:
         """Return every registered command schema."""
         return self._get("/commands")
 
-    def get_command(self, name: str) -> Dict[str, Any]:
+    def get_command(self, name: str) -> dict[str, Any]:
         """Return the schema for a single command."""
         return self._get(f"/commands/{name}")
 
-    def execute(self, command: str, **arguments: Any) -> Dict[str, Any]:
+    def execute(self, command: str, **arguments: Any) -> dict[str, Any]:
         """Execute *command* with keyword arguments.
 
         Each keyword maps to an argument name from the command's schema
@@ -100,14 +101,14 @@ class MCPClient:
             {"command": command, "arguments": arguments},
         )
 
-    def tool(self, command: str) -> Callable[..., Dict[str, Any]]:
+    def tool(self, command: str) -> Callable[..., dict[str, Any]]:
         """Return a callable bound to *command*.
 
         Equivalent to ``lambda **kw: self.execute(command, **kw)`` but
         with a clearer repr and bound name.
         """
 
-        def _call(**kwargs: Any) -> Dict[str, Any]:
+        def _call(**kwargs: Any) -> dict[str, Any]:
             return self.execute(command, **kwargs)
 
         _call.__name__ = command
@@ -119,8 +120,8 @@ class MCPClient:
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> "MCPClient":
+    def __enter__(self) -> Self:
         return self
 
-    def __exit__(self, *exc: Any) -> None:
+    def __exit__(self, *exc: object) -> None:
         self.close()

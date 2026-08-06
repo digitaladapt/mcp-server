@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import shlex
 import subprocess
-from typing import Any, Dict
+from typing import Any
 
 from .models import CommandSchema, ExecuteResult
 
@@ -53,7 +53,7 @@ def _cast(value: Any, expected: str, arg_name: str) -> Any:
 
 
 def _validate_and_build(
-    schema: CommandSchema, arguments: Dict[str, Any]
+    schema: CommandSchema, arguments: dict[str, Any]
 ) -> list[str]:
     """Validate ``arguments`` and return the constructed argv list.
 
@@ -119,7 +119,7 @@ def _validate_and_build(
 
 def run_command(
     schema: CommandSchema,
-    arguments: Dict[str, Any],
+    arguments: dict[str, Any],
     timeout: int = DEFAULT_TIMEOUT,
 ) -> ExecuteResult:
     """Validate, build, and execute ``schema`` with ``arguments``.
@@ -135,6 +135,7 @@ def run_command(
             capture_output=True,
             text=True,
             timeout=timeout,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         raise ValueError(

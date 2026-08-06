@@ -12,7 +12,6 @@ import pytest
 from app.executor import _cast, _validate_and_build, run_command
 from app.models import ArgSpec, CommandSchema
 
-
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #

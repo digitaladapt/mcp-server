@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 import yaml
 from pydantic import ValidationError
 
 from app import registry as reg
-from app.models import CommandSchema, ValidationIssue, ValidationResult
+from app.models import CommandSchema, ValidationResult
 
 
 def write_registry_file(path: Path, name: str, **fields: object) -> None:
@@ -113,7 +114,7 @@ class TestLoadFile:
         path = tmp_registry / "broken.yaml"
         path.write_text("name: broken\n  bad: yaml: structure\n",
                         encoding="utf-8")
-        with pytest.raises(Exception):
+        with pytest.raises(yaml.YAMLError):
             reg._load_file(path)
 
     def test_missing_required_fields_raises(self, tmp_registry: Path) -> None:
@@ -276,7 +277,9 @@ class TestValidateRegistry:
 class TestRealRegistry:
     """Smoke tests against the project's actual ``registry/`` directory."""
 
-    EXPECTED_COMMANDS = {"discord", "hello", "list_files", "node_run", "php_eval"}
+    EXPECTED_COMMANDS: ClassVar[set[str]] = {
+        "discord", "hello", "list_files", "node_run", "php_eval",
+    }
 
     def test_real_commands_load(self) -> None:
         """The five real commands are present after import-time loading."""

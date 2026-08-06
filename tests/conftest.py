@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import os
+from collections.abc import Generator
 from pathlib import Path
-from textwrap import dedent
-from typing import Generator
 
 import pytest
 from fastapi.testclient import TestClient
-
 
 # ---------------------------------------------------------------------------
 # Registry helpers

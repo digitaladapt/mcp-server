@@ -15,7 +15,6 @@ from starlette.testclient import TestClient
 from app.client import MCPClient, MCPError
 from app.main import app
 
-
 # --------------------------------------------------------------------------- #
 # Helpers / fixtures
 # --------------------------------------------------------------------------- #

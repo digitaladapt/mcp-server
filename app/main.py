@@ -9,7 +9,6 @@ Exposes:
 """
 
 import logging
-from typing import List
 
 from fastapi import FastAPI, HTTPException
 
@@ -38,8 +37,8 @@ async def health() -> dict:
     return {"status": "ok"}
 
 
-@app.get("/commands", response_model=List[CommandSchema])
-async def get_all_commands() -> List[CommandSchema]:
+@app.get("/commands", response_model=list[CommandSchema])
+async def get_all_commands() -> list[CommandSchema]:
     """List every registered command."""
     return list_commands()
 
