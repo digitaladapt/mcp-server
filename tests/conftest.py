@@ -53,11 +53,10 @@ def good_registry(tmp_registry: Path) -> Path:
         args=[{"name": "name", "type": "string", "required": True}],
     )
     write_registry_file(
-        tmp_registry / "list_files.yaml", "list_files",
-        executable="/bin/ls",
+        tmp_registry / "log_read.yaml", "log_read",
+        executable="/bin/cat",
         args=[
-            {"name": "path", "type": "string", "required": False},
-            {"name": "-l", "type": "flag", "required": False},
+            {"name": "file", "type": "string", "required": False},
         ],
     )
     return tmp_registry

@@ -52,13 +52,13 @@ class TestListCommands:
         cmds = mcp_client.list_commands()
         assert isinstance(cmds, list)
 
-    def test_at_least_five_commands(self, mcp_client: MCPClient) -> None:
+    def test_at_least_three_commands(self, mcp_client: MCPClient) -> None:
         cmds = mcp_client.list_commands()
-        assert len(cmds) >= 5
+        assert len(cmds) >= 3
 
-    def test_includes_hello_and_discord(self, mcp_client: MCPClient) -> None:
+    def test_includes_log_and_discord(self, mcp_client: MCPClient) -> None:
         names = {c["name"] for c in mcp_client.list_commands()}
-        assert "hello" in names
+        assert "log" in names
         assert "discord" in names
 
 
@@ -67,9 +67,9 @@ class TestListCommands:
 # --------------------------------------------------------------------------- #
 
 class TestGetCommand:
-    def test_get_hello(self, mcp_client: MCPClient) -> None:
-        cmd = mcp_client.get_command("hello")
-        assert cmd["name"] == "hello"
+    def test_get_log(self, mcp_client: MCPClient) -> None:
+        cmd = mcp_client.get_command("log")
+        assert cmd["name"] == "log"
 
     def test_get_nonexistent_raises(self, mcp_client: MCPClient) -> None:
         with pytest.raises(MCPError):
@@ -86,17 +86,16 @@ class TestGetCommand:
 # --------------------------------------------------------------------------- #
 
 class TestExecute:
-    def test_hello_world(self, mcp_client: MCPClient) -> None:
-        result = mcp_client.execute("hello", name="World")
+    def test_log_world(self, mcp_client: MCPClient) -> None:
+        result = mcp_client.execute("log", message="World")
         assert result["success"] is True
-        assert "Hello, World!" in result["stdout"]
+        assert "World" in result["stdout"]
         assert result["exit_code"] == 0
 
-    def test_hello_upper(self, mcp_client: MCPClient) -> None:
-        result = mcp_client.execute("hello", name="World", **{"--upper": True})
+    def test_log_error_level(self, mcp_client: MCPClient) -> None:
+        result = mcp_client.execute("log", message="oops", **{"--level": "error"})
         assert result["success"] is True
-        # hello.sh upper-cases only the name token, not the greeting prefix.
-        assert "Hello, WORLD!" in result["stdout"]
+        assert "ERROR" in result["stdout"]
 
     def test_execute_nonexistent_raises(self, mcp_client: MCPClient) -> None:
         with pytest.raises(MCPError):
@@ -107,13 +106,13 @@ class TestExecute:
             mcp_client.execute("nonexistent")
         assert "404" in str(exc_info.value)
 
-    def test_hello_missing_name_raises(self, mcp_client: MCPClient) -> None:
+    def test_log_missing_message_raises(self, mcp_client: MCPClient) -> None:
         with pytest.raises(MCPError):
-            mcp_client.execute("hello")
+            mcp_client.execute("log")
 
-    def test_hello_missing_name_is_400(self, mcp_client: MCPClient) -> None:
+    def test_log_missing_message_is_400(self, mcp_client: MCPClient) -> None:
         with pytest.raises(MCPError) as exc_info:
-            mcp_client.execute("hello")
+            mcp_client.execute("log")
         assert "400" in str(exc_info.value)
 
 
@@ -123,22 +122,22 @@ class TestExecute:
 
 class TestTool:
     def test_returns_callable(self, mcp_client: MCPClient) -> None:
-        hello = mcp_client.tool("hello")
-        assert callable(hello)
+        log = mcp_client.tool("log")
+        assert callable(log)
 
     def test_call_works(self, mcp_client: MCPClient) -> None:
-        hello = mcp_client.tool("hello")
-        result = hello(name="Test")
+        log = mcp_client.tool("log")
+        result = log(message="Test")
         assert result["success"] is True
-        assert "Hello, Test!" in result["stdout"]
+        assert "Test" in result["stdout"]
 
     def test_name_attribute(self, mcp_client: MCPClient) -> None:
-        hello = mcp_client.tool("hello")
-        assert hello.__name__ == "hello"
+        log = mcp_client.tool("log")
+        assert log.__name__ == "log"
 
     def test_qualname_attribute(self, mcp_client: MCPClient) -> None:
-        hello = mcp_client.tool("hello")
-        assert hello.__qualname__ == "MCPClient.tool<hello>"
+        log = mcp_client.tool("log")
+        assert log.__qualname__ == "MCPClient.tool<log>"
 
 
 # --------------------------------------------------------------------------- #

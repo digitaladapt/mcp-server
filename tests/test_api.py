@@ -2,7 +2,7 @@
 
 Uses the ``app_client`` fixture from ``conftest.py`` which spins up a
 ``TestClient`` against the real app and real registry (commands: discord,
-hello, list_files, node_run, php_eval).
+log, log_read).
 """
 
 from __future__ import annotations
@@ -29,12 +29,12 @@ class TestHealth:
 class TestCommands:
     """Listing and inspecting registered commands."""
 
-    def test_list_returns_200_with_at_least_five(self, app_client):
+    def test_list_returns_200_with_at_least_three(self, app_client):
         resp = app_client.get("/commands")
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
-        assert len(data) >= 5
+        assert len(data) >= 3
 
     def test_each_item_has_required_fields(self, app_client):
         data = app_client.get("/commands").json()
@@ -46,15 +46,14 @@ class TestCommands:
 
     def test_expected_command_names_present(self, app_client):
         names = {c["name"] for c in app_client.get("/commands").json()}
-        assert "hello" in names
         assert "discord" in names
-        assert "list_files" in names
+        assert "log" in names
 
     def test_get_valid_command(self, app_client):
-        resp = app_client.get("/commands/hello")
+        resp = app_client.get("/commands/log")
         assert resp.status_code == 200
         data = resp.json()
-        assert data["name"] == "hello"
+        assert data["name"] == "log"
         assert "description" in data
         assert "executable" in data
         assert isinstance(data["args"], list)
@@ -84,9 +83,9 @@ class TestValidate:
         data = app_client.get("/validate").json()
         assert data["valid"] is True
 
-    def test_validate_total_at_least_five(self, app_client):
+    def test_validate_total_at_least_three(self, app_client):
         data = app_client.get("/validate").json()
-        assert data["total"] >= 5
+        assert data["total"] >= 3
 
     def test_validate_issues_structure(self, app_client):
         data = app_client.get("/validate").json()
@@ -105,45 +104,44 @@ class TestValidate:
 class TestExecute:
     """Command execution endpoint."""
 
-    def test_execute_hello_basic(self, app_client):
+    def test_execute_log_basic(self, app_client):
         resp = app_client.post(
             "/execute",
-            json={"command": "hello", "arguments": {"name": "World"}},
+            json={"command": "log", "arguments": {"message": "World"}},
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
-        assert "Hello, World!" in data["stdout"]
+        assert "World" in data["stdout"]
 
-    def test_execute_hello_upper(self, app_client):
+    def test_execute_log_error_level(self, app_client):
         resp = app_client.post(
             "/execute",
             json={
-                "command": "hello",
-                "arguments": {"name": "World", "--upper": True},
+                "command": "log",
+                "arguments": {"message": "something broke", "--level": "error"},
             },
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
-        # The --upper flag upper-cases the name portion.
-        assert "Hello, WORLD!" in data["stdout"]
+        assert "ERROR" in data["stdout"]
 
-    def test_execute_hello_missing_required_arg(self, app_client):
+    def test_execute_log_missing_required_arg(self, app_client):
         resp = app_client.post(
             "/execute",
-            json={"command": "hello", "arguments": {}},
+            json={"command": "log", "arguments": {}},
         )
         assert resp.status_code == 400
         detail = resp.json()["detail"]
         assert "missing required argument" in detail.lower()
 
-    def test_execute_hello_unknown_argument(self, app_client):
+    def test_execute_log_unknown_argument(self, app_client):
         resp = app_client.post(
             "/execute",
             json={
-                "command": "hello",
-                "arguments": {"name": "World", "bogus": "value"},
+                "command": "log",
+                "arguments": {"message": "World", "bogus": "value"},
             },
         )
         assert resp.status_code == 400
@@ -158,11 +156,12 @@ class TestExecute:
         assert resp.status_code == 404
         assert resp.json()["detail"] == "Command not found"
 
-    def test_execute_list_files(self, app_client):
+    def test_execute_log_read(self, app_client):
         resp = app_client.post(
             "/execute",
-            json={"command": "list_files", "arguments": {"path": "/tmp"}},
+            json={"command": "log_read", "arguments": {}},
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
+        assert isinstance(data["stdout"], str)

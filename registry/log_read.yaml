@@ -1,0 +1,14 @@
+# log_read.yaml – read the tail of the MCP log file.
+#
+# Companion to the `log` command.  Reads the last N lines (default 50)
+# from the log file.
+
+name: log_read
+description: Read the last N lines from the MCP log file.
+executable: scripts/log_read.sh
+args:
+  - name: lines
+    type: string
+    required: false
+    default: "50"
+    help: Number of lines to read from the end (default 50).

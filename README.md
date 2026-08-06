@@ -13,6 +13,8 @@ the HTTP API and executes them through a validated, sandboxed endpoint.
 - **Discoverable** – `GET /commands` lists everything; OpenAPI at `/openapi.json`.
 - **Secure execution** – arguments are validated against the schema before
   the command is ever run; a 30 s timeout prevents hangs.
+- **Optional API key** – set `MCP_API_KEY` to require authentication on all
+  endpoints except `/health`.
 
 ## Quick start
 
@@ -20,10 +22,18 @@ the HTTP API and executes them through a validated, sandboxed endpoint.
 cd ~/projects/mcp_server
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
+
+# Optional: set an API key to secure the server
+export MCP_API_KEY="your-secret-key"
+
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 The server now listens on `http://127.0.0.1:8000`.
+
+If `MCP_API_KEY` is set, all endpoints except `/health` require an
+`X-API-Key` header matching the key.  If unset, the server runs open
+(suitable for local development or trusted networks).
 
 ## API
 
@@ -41,15 +51,20 @@ The server now listens on `http://127.0.0.1:8000`.
 # List available commands
 curl http://127.0.0.1:8000/commands
 
-# Execute the `hello` command
+# Execute the `log` command
 curl -X POST http://127.0.0.1:8000/execute \
      -H 'Content-Type: application/json' \
-     -d '{"command": "hello", "arguments": {"name": "World"}}'
+     -d '{"command": "log", "arguments": {"message": "Server started"}}'
 ```
 
 Response:
 ```json
-{"stdout": "World\n", "stderr": "", "exit_code": 0, "success": true}
+{"stdout": "[2026-01-15T10:30:00-0500] [INFO] Server started\n", "stderr": "", "exit_code": 0, "success": true}
+```
+
+If an API key is set, include it in the header:
+```bash
+curl -H "X-API-Key: your-secret-key" http://127.0.0.1:8000/commands
 ```
 
 ## Validating the registry
@@ -161,14 +176,14 @@ command as a native Python callable.
 ```python
 from app.client import MCPClient
 
-mc = MCPClient("http://127.0.0.1:8000")
+mc = MCPClient("http://127.0.0.1:8000", api_key="your-secret-key")
 
 # Discover available commands
 for cmd in mc.list_commands():
     print(cmd["name"], "-", cmd["description"])
 
 # Execute a command
-result = mc.execute("hello", name="World")
+result = mc.execute("log", message="Server started")
 print(result["stdout"])
 
 # Bind a command to a reusable callable
@@ -179,11 +194,14 @@ discord(message="Deploy complete", **{"-c": "green", "-t": "CI"})
 Flag names that start with `-` aren't valid Python identifiers, so pass
 them via dict unpacking: `**{"-c": "green"}`.
 
+If the server has `MCP_API_KEY` set, pass `api_key=` to the client —
+it will be sent as `X-API-Key` on every request.
+
 The client also works as a context manager:
 
 ```python
 with MCPClient() as mc:
-    mc.execute("list_files", path="/etc", **{"-l": True})
+    mc.execute("log_read", lines="10")
 ```
 
 ## Project layout
@@ -199,13 +217,13 @@ mcp_server/
 │   ├─ validate.py      # `python -m app.validate` CLI
 │   └─ client.py        # httpx client library (M6)
 ├─ registry/            # command definitions (one file per command)
-│   ├─ hello.yaml
-│   ├─ list_files.yaml
-│   ├─ discord.yaml
-│   ├─ php_eval.yaml     # PHP variant example
-│   └─ node_run.yaml     # Node variant example
+│   ├─ log.yaml          # logging command
+│   ├─ log_read.yaml     # read log tail
+│   └─ discord.yaml      # Discord webhook sender
 ├─ scripts/              # helper scripts referenced by registry YAMLs
 │   ├─ discord.sh        # Discord webhook sender
+│   ├─ log.sh            # append to log file
+│   ├─ log_read.sh       # read log tail
 │   └─ config.sh.example # template — copy to config.sh and fill in
 ├─ Dockerfile             # multi-arch base image definition
 ├─ variants/              # variant Dockerfiles (PHP, Node, etc.)
@@ -249,6 +267,36 @@ docker compose up -d   # or uvicorn directly
 at `scripts/config.sh`.  If `config.sh` is missing, the script falls back
 to environment variables (`DISCORD_GENERAL_HOOK`, etc.).
 
+## Logging
+
+The `log` and `log_read` commands provide a simple logging utility —
+append timestamped messages to a file and read them back.
+
+```bash
+# Log a message
+curl -X POST http://127.0.0.1:8000/execute \
+     -H 'Content-Type: application/json' \
+     -d '{"command": "log", "arguments": {"message": "Deploy complete"}}'
+
+# Log with a level
+curl -X POST http://127.0.0.1:8000/execute \
+     -H 'Content-Type: application/json' \
+     -d '{"command": "log", "arguments": {"message": "Disk full", "--level": "error"}}'
+
+# Read the last 20 lines
+curl -X POST http://127.0.0.1:8000/execute \
+     -H 'Content-Type: application/json' \
+     -d '{"command": "log_read", "arguments": {"lines": "20"}}'
+```
+
+The log file path is determined by (in priority order):
+
+1. `MCP_LOG_FILE` environment variable — full path to the log file.
+2. `MCP_LOG_DIR` environment variable — directory; file is `mcp.log` inside.
+3. Default: `/tmp/mcp/mcp.log`.
+
+Parent directories are created automatically if they don't exist.
+
 ### Docker setup
 
 For Docker, use environment variables instead of `config.sh`:
@@ -288,6 +336,7 @@ docker buildx build --platform linux/amd64,linux/arm64 -t mcp-server:latest .
 ```bash
 docker run -d --name mcp-server -p 8000:8000 \
   --env-file .env \
+  -e MCP_API_KEY="your-secret-key" \
   -v ./registry:/app/registry \
   mcp-server:latest
 ```
@@ -304,6 +353,7 @@ docker compose up -d
 |--------------------|----------------------------------------------------------|
 | `/app/registry`    | Command definitions — override or extend at runtime.     |
 | `/app/scripts/config.sh` | Optional: file-based config for discord.sh.        |
+| `/tmp/mcp`         | Default log file location (or set MCP_LOG_FILE).        |
 
 The `scripts/` directory (including `discord.sh`) is baked into the image.
 Secrets are never baked in — provide them via environment variables
@@ -403,7 +453,12 @@ covered by `test_executor.py::TestValidateAndBuild::test_flag_default_true_*`.
 - Arguments are validated (type, required, choices) before the subprocess is
   spawned, and unknown arguments are rejected.
 - Every command has a hard 30 s timeout.
+- **API key authentication** — set `MCP_API_KEY` to require an `X-API-Key`
+  header on all endpoints except `/health`.  When unset, the server is open.
 - Run the server under a limited user account; do not grant it sudo.
+- Commands that allow introspection of the server filesystem or arbitrary
+  code execution (e.g. `list_files`, `php_eval`, `node_run`) have been
+  removed by design — only specific, allowed commands should be registered.
 
 ---
 

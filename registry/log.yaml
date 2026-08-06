@@ -1,0 +1,23 @@
+# log.yaml – append a timestamped message to a log file.
+#
+# Pivots the old "hello" command into a useful logging utility.
+# The log file is controlled by MCP_LOG_FILE or MCP_LOG_DIR env vars,
+# defaulting to /tmp/mcp/mcp.log.
+
+name: log
+description: Append a timestamped message to the MCP log file.
+executable: scripts/log.sh
+args:
+  - name: --level
+    type: string
+    required: false
+    choices:
+      - info
+      - warn
+      - error
+    default: info
+    help: Log level (info, warn, error). Defaults to info.
+  - name: message
+    type: string
+    required: true
+    help: The message to log.

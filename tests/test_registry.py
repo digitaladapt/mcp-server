@@ -137,7 +137,7 @@ class TestLoadRegistry:
         reg.load_registry(good_registry)
         assert len(reg.COMMANDS) == 2
         assert "hello" in reg.COMMANDS
-        assert "list_files" in reg.COMMANDS
+        assert "log_read" in reg.COMMANDS
         reg.load_registry()  # restore real registry
 
     def test_bad_files_are_skipped(self, registry_with_bad_files: Path) -> None:
@@ -278,7 +278,7 @@ class TestRealRegistry:
     """Smoke tests against the project's actual ``registry/`` directory."""
 
     EXPECTED_COMMANDS: ClassVar[set[str]] = {
-        "discord", "hello", "list_files", "node_run", "php_eval",
+        "discord", "log", "log_read",
     }
 
     def test_real_commands_load(self) -> None:
@@ -286,10 +286,10 @@ class TestRealRegistry:
         reg.load_registry()  # uses the real REGISTRY_DIR
         assert set(reg.COMMANDS.keys()) == self.EXPECTED_COMMANDS
 
-    def test_hello_schema_executable(self) -> None:
-        """The ``hello`` command points at a script named ``hello.sh``."""
+    def test_log_schema_executable(self) -> None:
+        """The ``log`` command points at a script named ``log.sh``."""
         reg.load_registry()
-        schema = reg.get_command_schema("hello")
+        schema = reg.get_command_schema("log")
         assert schema is not None
-        assert "hello.sh" in schema.executable
+        assert "log.sh" in schema.executable
 
