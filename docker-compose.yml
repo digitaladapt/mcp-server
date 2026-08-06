@@ -32,6 +32,7 @@ services:
     environment:
       - TZ=${TZ:-UTC}
       - MCP_LOG_FILE=${MCP_LOG_FILE:-/tmp/mcp/mcp.log}
+      - MCP_API_KEY=${MCP_API_KEY:-}
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 30s

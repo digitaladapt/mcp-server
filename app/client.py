@@ -10,14 +10,14 @@ Usage
 
     from app.client import MCPClient
 
-    mc = MCPClient("http://127.0.0.1:8000")
+    mc = MCPClient("http://127.0.0.1:8000", api_key="your-secret-key")
 
     # Discover available commands
     for cmd in mc.list_commands():
         print(cmd["name"], "-", cmd["description"])
 
     # Execute one
-    result = mc.execute("hello", name="World")
+    result = mc.execute("log", message="World")
     print(result["stdout"])
 
 The :meth:`MCPClient.tool` helper returns a closure bound to a specific
@@ -46,16 +46,30 @@ class MCPClient:
     ----------
     base_url:
         Root URL of the running MCP server, e.g. ``http://127.0.0.1:8000``.
+    api_key:
+        Optional API key.  If provided, sent as ``X-API-Key`` header on
+        every request.  Must match the server's ``MCP_API_KEY`` env var.
     timeout:
         Per-request timeout in seconds (should be >= the server's 30 s
         command timeout if you expect long-running commands).
     """
 
     def __init__(
-        self, base_url: str = "http://127.0.0.1:8000", timeout: float = 60.0
+        self,
+        base_url: str = "http://127.0.0.1:8000",
+        api_key: str | None = None,
+        timeout: float = 60.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self._client = httpx.Client(base_url=self.base_url, timeout=timeout)
+        self.api_key = api_key
+        headers: dict[str, str] = {}
+        if api_key:
+            headers["X-API-Key"] = api_key
+        self._client = httpx.Client(
+            base_url=self.base_url,
+            timeout=timeout,
+            headers=headers,
+        )
 
     # -- low-level ------------------------------------------------------
 

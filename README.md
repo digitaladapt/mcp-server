@@ -211,11 +211,12 @@ mcp_server/
 ├─ app/
 │   ├─ __init__.py      # package marker
 │   ├─ main.py          # FastAPI app + endpoints
+│   ├─ auth.py          # API key authentication dependency
 │   ├─ models.py        # Pydantic schemas
 │   ├─ executor.py      # validation + subprocess wrapper
 │   ├─ registry.py      # YAML/JSON command loader + validate_registry()
 │   ├─ validate.py      # `python -m app.validate` CLI
-│   └─ client.py        # httpx client library (M6)
+│   └─ client.py        # httpx client library
 ├─ registry/            # command definitions (one file per command)
 │   ├─ log.yaml          # logging command
 │   ├─ log_read.yaml     # read log tail
@@ -235,7 +236,8 @@ mcp_server/
 │   ├─ test_executor.py
 │   ├─ test_registry.py
 │   ├─ test_api.py
-│   └─ test_client.py
+│   ├─ test_client.py
+│   └─ test_auth.py
 ├─ docker-compose.yml     # easy local run with volumes
 ├─ .env.example           # Docker env var template (webhook URL, etc.)
 ├─ .dockerignore          # excludes venv, secrets, tests, etc.
@@ -414,8 +416,8 @@ Then add a `registry/ruby_eval.yaml` pointing at `/usr/bin/ruby`.
 
 ## Testing
 
-The project includes a full pytest suite (129 tests) covering models,
-executor, registry, API endpoints, and the client library.
+The project includes a full pytest suite (149 tests) covering models,
+executor, registry, API endpoints, client library, and authentication.
 
 ```bash
 # Install dev dependencies
