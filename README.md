@@ -59,6 +59,8 @@ Create a file in `registry/` (e.g. `my_tool.yaml`):
 name: my_tool
 description: Does something useful.
 executable: /usr/local/bin/my_tool
+# (relative paths like scripts/my_tool.sh are resolved against
+#  the project root, so they work in any clone or Docker image)
 args:
   - name: input
     type: string
@@ -155,16 +157,59 @@ mcp_server/
 │   ├─ discord.yaml
 │   ├─ php_eval.yaml     # PHP variant example
 │   └─ node_run.yaml     # Node variant example
+├─ scripts/              # helper scripts referenced by registry YAMLs
+│   ├─ discord.sh        # Discord webhook sender
+│   └─ config.sh.example # template — copy to config.sh and fill in
 ├─ Dockerfile             # multi-arch base image definition
 ├─ variants/              # variant Dockerfiles (PHP, Node, etc.)
 │   ├─ Dockerfile.php
 │   └─ Dockerfile.node
 ├─ docker-compose.yml     # easy local run with volumes
+├─ .env.example           # Docker env var template (webhook URL, etc.)
 ├─ .dockerignore          # excludes venv, secrets, etc.
 ├─ requirements.txt
 ├─ planning.md
 └─ implementation.md
 ```
+
+## Discord setup
+
+The `discord` command wraps `scripts/discord.sh`, which sends messages to
+Discord via a webhook.  To use it you need a webhook URL from your Discord
+server:
+
+**Server Settings → Integrations → Webhooks → New Webhook**
+
+The URL must end with `?wait=true`.
+
+### Local setup
+
+```bash
+cp scripts/config.sh.example scripts/config.sh
+# Edit scripts/config.sh and set DISCORD_GENERAL_HOOK
+docker compose up -d   # or uvicorn directly
+```
+
+`discord.sh` reads `config.sh` from its own directory, so the file must be
+at `scripts/config.sh`.  If `config.sh` is missing, the script falls back
+to environment variables (`DISCORD_GENERAL_HOOK`, etc.).
+
+### Docker setup
+
+For Docker, use environment variables instead of `config.sh`:
+
+```bash
+cp .env.example .env
+# Edit .env and set DISCORD_GENERAL_HOOK
+docker compose up -d
+```
+
+The `.env` file is loaded by `docker-compose.yml` and the environment
+variables are picked up by `discord.sh` automatically.  Only
+`DISCORD_GENERAL_HOOK` is required; the rest have fallback defaults.
+
+Alternatively, you can mount a `config.sh` file (see the commented volume
+in `docker-compose.yml`).
 
 ## Docker
 
@@ -187,8 +232,8 @@ docker buildx build --platform linux/amd64,linux/arm64 -t mcp-server:latest .
 
 ```bash
 docker run -d --name mcp-server -p 8000:8000 \
+  --env-file .env \
   -v ./registry:/app/registry \
-  -v ./config.sh:/app/config.sh:ro \
   mcp-server:latest
 ```
 
@@ -203,10 +248,11 @@ docker compose up -d
 | Mount              | Purpose                                                  |
 |--------------------|----------------------------------------------------------|
 | `/app/registry`    | Command definitions — override or extend at runtime.     |
-| `/app/config.sh`   | Secrets/config for wrapped scripts (e.g. discord.sh).    |
+| `/app/scripts/config.sh` | Optional: file-based config for discord.sh.        |
 
-**Never** bake `config.sh` into the image — it holds webhook URLs and
-other secrets. The `.dockerignore` file excludes it automatically.
+The `scripts/` directory (including `discord.sh`) is baked into the image.
+Secrets are never baked in — provide them via environment variables
+(`--env-file .env`) or by mounting `config.sh` as a read-only volume.
 
 ### Image details
 
@@ -239,8 +285,8 @@ docker build -f variants/Dockerfile.node -t mcp-server:node .
 
 ```bash
 docker run -p 8000:8000 \
+  --env-file .env \
   -v ./registry:/app/registry \
-  -v ./config.sh:/app/config.sh:ro \
   mcp-server:php
 ```
 

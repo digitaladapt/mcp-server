@@ -9,7 +9,7 @@
 
 name: discord
 description: Send a message to the Discord chat room.
-executable: /home/user/discord.sh
+executable: scripts/discord.sh
 args:
   # --- flags (must precede the message) -------------------------------
   - name: -q

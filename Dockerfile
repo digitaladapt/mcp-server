@@ -9,8 +9,8 @@
 #
 # Run:
 #   docker run -p 8000:8000 \
+#     --env-file .env \
 #     -v ./registry:/app/registry \
-#     -v ./config.sh:/app/config.sh:ro \
 #     mcp-server:latest
 #
 # ── Variant strategy ──────────────────────────────────────────────────
@@ -51,6 +51,11 @@ COPY app/ ./app/
 # Copy the built-in example command definitions.
 # Users can override these by mounting a volume at /app/registry.
 COPY registry/ ./registry/
+
+# Copy helper scripts (discord.sh, etc.).
+# These are referenced by registry YAMLs via relative paths.
+# config.sh is NOT copied — it's a secret; mount it or use env vars.
+COPY scripts/ ./scripts/
 
 # Switch to the non-root user.
 USER mcp

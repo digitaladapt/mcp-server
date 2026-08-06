@@ -19,15 +19,28 @@ import yaml
 
 from .models import CommandSchema
 
+# Project root (the parent of the ``app/`` package).
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 # Directory holding command-definition files.
-REGISTRY_DIR = Path(__file__).resolve().parent.parent / "registry"
+# Override via MCP_REGISTRY_DIR env var for non-standard layouts.
+REGISTRY_DIR = Path(os.environ.get("MCP_REGISTRY_DIR", PROJECT_ROOT / "registry"))
+
+#: Sentinel used by CommandSchema to distinguish "no default set" from
+#: a falsy default like ``False``, ``0``, or ``""``.
+#:
 
 # In-memory store: {command_name: CommandSchema}
 COMMANDS: dict[str, CommandSchema] = {}
 
 
 def _load_file(path: Path) -> CommandSchema:
-    """Parse a single YAML or JSON definition file."""
+    """Parse a single YAML or JSON definition file.
+
+    If the ``executable`` is a relative path, it is resolved against the
+    project root so registry files are portable across machines and
+    containers.
+    """
     suffix = path.suffix.lower()
     if suffix in (".yaml", ".yml"):
         data = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -35,7 +48,11 @@ def _load_file(path: Path) -> CommandSchema:
         data = json.loads(path.read_text(encoding="utf-8"))
     else:
         raise ValueError(f"Unsupported registry file type: {path}")
-    return CommandSchema(**data)
+    schema = CommandSchema(**data)
+    # Resolve relative executable paths against the project root.
+    if not os.path.isabs(schema.executable):
+        schema.executable = str(PROJECT_ROOT / schema.executable)
+    return schema
 
 
 def load_registry(registry_dir: Path = REGISTRY_DIR) -> None:

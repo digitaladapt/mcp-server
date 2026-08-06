@@ -67,7 +67,10 @@ def _validate_and_build(
 
         # ---- flag (presence-only) -----------------------------------
         if spec.is_flag:
-            val = provided.pop(name, False)
+            if name in provided:
+                val = provided.pop(name)
+            else:
+                val = spec.default if spec.has_default else False
             if val:
                 cmd.append(name)
             continue

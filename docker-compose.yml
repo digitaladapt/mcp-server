@@ -1,15 +1,15 @@
 # docker-compose.yml – easy local development & deployment of MCP Server.
 #
 # Usage:
-#   docker compose up -d
-#   curl http://localhost:8000/commands
+#   1. cp .env.example .env   and fill in DISCORD_GENERAL_HOOK
+#   2. docker compose up -d
+#   3. curl http://localhost:8000/commands
 #
 # The registry/ directory is mounted as a volume so you can add/edit
 # command definitions without rebuilding the image.
 #
-# config.sh is mounted read-only for scripts like discord.sh that source
-# it at runtime (webhook URLs etc.).  NEVER commit config.sh — it holds
-# secrets.
+# Discord configuration is provided via environment variables (see .env).
+# Alternatively, you can mount a config.sh file (see commented volume below).
 
 services:
   mcp-server:
@@ -22,11 +22,14 @@ services:
     volumes:
       # Override or extend command definitions at runtime.
       - ./registry:/app/registry
-      # Secrets/config for wrapped scripts (discord.sh etc.)
-      # Mount read-only so the container can't modify it.
-      - ./config.sh:/app/config.sh:ro
+      # Optional: mount a config.sh for discord.sh instead of using env vars.
+      # Uncomment if you prefer file-based config over .env:
+      # - ./scripts/config.sh:/app/scripts/config.sh:ro
+    env_file:
+      # Path to your .env file (see .env.example).
+      - path: .env
+        required: false
     environment:
-      # Pass through any env vars your commands might need.
       - TZ=${TZ:-UTC}
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
