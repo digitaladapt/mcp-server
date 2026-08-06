@@ -153,10 +153,81 @@ mcp_server/
 │   ├─ hello.yaml
 │   ├─ list_files.yaml
 │   └─ discord.yaml
+├─ Dockerfile             # multi-arch image definition
+├─ docker-compose.yml     # easy local run with volumes
+├─ .dockerignore          # excludes venv, secrets, etc.
 ├─ requirements.txt
 ├─ planning.md
 └─ implementation.md
 ```
+
+## Docker
+
+The server ships with a multi-arch Dockerfile ready for `amd64` and
+`arm64`.
+
+### Build
+
+```bash
+docker build -t mcp-server:latest .
+```
+
+For multi-arch builds (requires `buildx`):
+
+```bash
+docker buildx build --platform linux/amd64,linux/arm64 -t mcp-server:latest .
+```
+
+### Run
+
+```bash
+docker run -d --name mcp-server -p 8000:8000 \
+  -v ./registry:/app/registry \
+  -v ./config.sh:/app/config.sh:ro \
+  mcp-server:latest
+```
+
+Or with `docker compose`:
+
+```bash
+docker compose up -d
+```
+
+### Volumes
+
+| Mount              | Purpose                                                  |
+|--------------------|----------------------------------------------------------|
+| `/app/registry`    | Command definitions — override or extend at runtime.     |
+| `/app/config.sh`   | Secrets/config for wrapped scripts (e.g. discord.sh).    |
+
+**Never** bake `config.sh` into the image — it holds webhook URLs and
+other secrets. The `.dockerignore` file excludes it automatically.
+
+### Image details
+
+- **Base**: `python:3.12-slim` (multi-arch)
+- **System deps**: `curl`, `jq` (for `discord.sh` and similar tools), `tini`
+- **Runs as**: non-root user `mcp` (uid 1000)
+- **Entrypoint**: `tini` (proper PID-1 signal handling)
+
+### Building variants (PHP, Node, etc.)
+
+The Dockerfile is designed as a base. Create a variant by layering on top:
+
+```dockerfile
+# Dockerfile.php
+FROM mcp-server:latest
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    php-cli && rm -rf /var/lib/apt/lists/*
+USER mcp
+```
+
+```bash
+docker build -f Dockerfile.php -t mcp-server:php .
+```
+
+Registry definitions can now reference `/usr/bin/php`.
 
 ## Security notes
 

@@ -1,0 +1,36 @@
+# docker-compose.yml – easy local development & deployment of MCP Server.
+#
+# Usage:
+#   docker compose up -d
+#   curl http://localhost:8000/commands
+#
+# The registry/ directory is mounted as a volume so you can add/edit
+# command definitions without rebuilding the image.
+#
+# config.sh is mounted read-only for scripts like discord.sh that source
+# it at runtime (webhook URLs etc.).  NEVER commit config.sh — it holds
+# secrets.
+
+services:
+  mcp-server:
+    build: .
+    image: mcp-server:latest
+    container_name: mcp-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      # Override or extend command definitions at runtime.
+      - ./registry:/app/registry
+      # Secrets/config for wrapped scripts (discord.sh etc.)
+      # Mount read-only so the container can't modify it.
+      - ./config.sh:/app/config.sh:ro
+    environment:
+      # Pass through any env vars your commands might need.
+      - TZ=${TZ:-UTC}
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
