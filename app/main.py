@@ -5,7 +5,8 @@ Exposes:
   GET  /commands          – list all registered commands (auth if configured)
   GET  /commands/{name}   – retrieve a single command's schema
   GET  /validate          – validate all registry files
-  POST /execute           – validate payload and run a command
+  POST /execute           – validate payload and run a command (generic)
+  POST /{command}         – dedicated route per registry command (auto-generated)
 """
 
 import logging
@@ -18,6 +19,7 @@ from .executor import run_command
 from .gitea_routes import router as gitea_router
 from .models import CommandSchema, ExecuteRequest, ExecuteResult, ValidationResult
 from .registry import get_command_schema, list_commands, validate_registry
+from .registry_routes import router as registry_router
 
 # Configure logging so registry warnings (and any other log messages)
 # are visible alongside uvicorn's output.
@@ -38,6 +40,10 @@ app.include_router(caldav_router)
 
 # Register the Gitea integration router (endpoints return 503 if unconfigured).
 app.include_router(gitea_router)
+
+# Register auto-generated routes for registry commands (discord, log, etc.).
+# Each command gets its own POST /{name} route with typed parameters.
+app.include_router(registry_router)
 
 
 @app.get("/health")

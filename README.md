@@ -43,7 +43,8 @@ If `MCP_API_KEY` is set, all endpoints except `/health` require an
 | GET    | `/commands`          | List all registered commands                 |
 | GET    | `/commands/{name}`   | Retrieve one command's schema                |
 | GET    | `/validate`          | Validate all registry files (detailed report) |
-| POST   | `/execute`           | Validate arguments and run a command         |
+| POST   | `/execute`           | Validate arguments and run a command (generic) |
+| POST   | `/{command}`         | Dedicated route per registry command (auto-gen) |
 | GET    | `/calendars`         | List accessible CalDAV calendars             |
 | GET    | `/events`            | List calendar events (optional date range)   |
 | GET    | `/events/{uid}`      | Get a single event by UID                    |
@@ -178,6 +179,33 @@ args:
     help: Quiet mode — forced on by default.
 ```
 
+## Native routes for registry commands
+
+Each command defined in `registry/` is automatically exposed as its own
+dedicated FastAPI route — `POST /{command_name}` — with a Pydantic
+request model generated from the YAML arg specs.  This means the
+platform can read the OpenAPI schema and surface each command as a
+**native tool** with properly typed parameters (strings, enums, flags,
+defaults), rather than hiding them behind the generic `POST /execute`
+endpoint.
+
+For example, `registry/discord.yaml` generates:
+
+```
+POST /discord
+  Body: discord_Request
+    -q:      boolean (default: true)   — quiet mode
+    -a:      boolean                   — alert mode
+    -c:      enum[22 colors]           — embed color
+    -t:      string                    — title
+    message: string (required)         — message body
+```
+
+The generic `POST /execute` endpoint remains available as a fallback.
+If a registry command's name collides with an existing route (e.g.
+`events`, `issues`), the dedicated route is skipped with a warning and
+the command is only accessible via `POST /execute`.
+
 ## Client library
 
 A small synchronous `httpx`-based client lives in `app/client.py`.  It
@@ -230,7 +258,11 @@ mcp_server/
 │   ├─ client.py        # httpx client library (commands + calendar API)
 │   ├─ caldav_models.py # Pydantic models for calendar events/tasks
 │   ├─ caldav_service.py # CalDAV service (1 editable + N read-only calendars)
-│   └─ caldav_routes.py # FastAPI router for /calendars, /events, /tasks
+│   ├─ caldav_routes.py # FastAPI router for /calendars, /events, /tasks
+│   ├─ gitea_models.py  # Pydantic models for Gitea resources
+│   ├─ gitea_service.py  # Gitea API service (issues, PRs, branches, releases)
+│   ├─ gitea_routes.py  # FastAPI router for /issues, /prs, /branches, etc.
+│   └─ registry_routes.py # Auto-generated native routes for registry commands
 ├─ registry/            # command definitions (one file per command)
 │   ├─ log.yaml          # logging command
 │   ├─ log_read.yaml     # read log tail
