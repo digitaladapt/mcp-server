@@ -110,10 +110,12 @@ class TestExecute:
         with pytest.raises(MCPError):
             mcp_client.execute("log")
 
-    def test_log_missing_message_is_400(self, mcp_client: MCPClient) -> None:
+    def test_log_missing_message_is_422(self, mcp_client: MCPClient) -> None:
+        """Missing required args fail request validation on the dedicated
+        route with a 422 (unprocessable entity)."""
         with pytest.raises(MCPError) as exc_info:
             mcp_client.execute("log")
-        assert "400" in str(exc_info.value)
+        assert "422" in str(exc_info.value)
 
 
 # --------------------------------------------------------------------------- #

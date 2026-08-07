@@ -43,7 +43,6 @@ If `MCP_API_KEY` is set, all endpoints except `/health` require an
 | GET    | `/commands`          | List all registered commands                 |
 | GET    | `/commands/{name}`   | Retrieve one command's schema                |
 | GET    | `/validate`          | Validate all registry files (detailed report) |
-| POST   | `/execute`           | Validate arguments and run a command (generic) |
 | POST   | `/{command}`         | Dedicated route per registry command (auto-gen) |
 | GET    | `/calendars`         | List accessible CalDAV calendars             |
 | GET    | `/events`            | List calendar events (optional date range)   |
@@ -63,10 +62,10 @@ If `MCP_API_KEY` is set, all endpoints except `/health` require an
 # List available commands
 curl http://127.0.0.1:8000/commands
 
-# Execute the `log` command
-curl -X POST http://127.0.0.1:8000/execute \
+# Execute the `log` command (dedicated route — the only way to run it)
+curl -X POST http://127.0.0.1:8000/log \
      -H 'Content-Type: application/json' \
-     -d '{"command": "log", "arguments": {"message": "Server started"}}'
+     -d '{"message": "Server started"}'
 ```
 
 Response:
@@ -194,8 +193,16 @@ dedicated FastAPI route — `POST /{command_name}` — with a Pydantic
 request model generated from the YAML arg specs.  This means the
 platform can read the OpenAPI schema and surface each command as a
 **native tool** with properly typed parameters (strings, enums, flags,
-defaults), rather than hiding them behind the generic `POST /execute`
-endpoint.
+defaults).
+
+These dedicated routes are the *only* way to execute registry commands —
+there is no generic `POST /execute` endpoint.  Registry files still feed
+`GET /commands` and `GET /validate` so you can discover and inspect
+commands, but execution happens through the typed per-command routes
+only.
+
+Unknown fields are rejected (`extra: forbid`) with a 422 response, and
+missing required arguments also return 422.
 
 For example, `registry/discord.yaml` generates:
 
@@ -212,10 +219,11 @@ POST /discord
 The `field_name` YAML key controls the parameter name shown to the model.
 When omitted, the arg `name` is used (with leading dashes stripped).
 
-The generic `POST /execute` endpoint remains available as a fallback.
 If a registry command's name collides with an existing route (e.g.
 `events`, `issues`), the dedicated route is skipped with a warning and
-the command is only accessible via `POST /execute`.
+the command cannot be executed over HTTP (it still appears in
+`GET /commands`).  Rename the command in the registry to enable
+execution.
 
 ## Client library
 
@@ -416,19 +424,19 @@ append timestamped messages to a file and read them back.
 
 ```bash
 # Log a message
-curl -X POST http://127.0.0.1:8000/execute \
+curl -X POST http://127.0.0.1:8000/log \
      -H 'Content-Type: application/json' \
-     -d '{"command": "log", "arguments": {"message": "Deploy complete"}}'
+     -d '{"message": "Deploy complete"}'
 
 # Log with a level
-curl -X POST http://127.0.0.1:8000/execute \
+curl -X POST http://127.0.0.1:8000/log \
      -H 'Content-Type: application/json' \
-     -d '{"command": "log", "arguments": {"message": "Disk full", "--level": "error"}}'
+     -d '{"message": "Disk full", "level": "error"}'
 
 # Read the last 20 lines
-curl -X POST http://127.0.0.1:8000/execute \
+curl -X POST http://127.0.0.1:8000/log_read \
      -H 'Content-Type: application/json' \
-     -d '{"command": "log_read", "arguments": {"lines": "20"}}'
+     -d '{"lines": "20"}'
 ```
 
 The log file path is determined by (in priority order):

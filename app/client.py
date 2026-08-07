@@ -16,7 +16,7 @@ Usage
     for cmd in mc.list_commands():
         print(cmd["name"], "-", cmd["description"])
 
-    # Execute one
+    # Execute one via its dedicated route
     result = mc.execute("log", message="World")
     print(result["stdout"])
 
@@ -122,14 +122,22 @@ class MCPClient:
     def execute(self, command: str, **arguments: Any) -> dict[str, Any]:
         """Execute *command* with keyword arguments.
 
-        Each keyword maps to an argument name from the command's schema
-        (positional names or ``--flag`` names).  Returns the
-        ``ExecuteResult`` dict: ``{stdout, stderr, exit_code, success}``.
+        Sends a POST to the command's dedicated ``/{command}`` route.
+        Keyword arguments map to the tool field names from the command's
+        schema (e.g. ``message=``, ``level=``, ``color=``); CLI-style
+        names (e.g. ``--level``, ``-c``) are translated automatically.
+        Returns the ``ExecuteResult`` dict:
+        ``{stdout, stderr, exit_code, success}``.
         """
-        return self._post(
-            "/execute",
-            {"command": command, "arguments": arguments},
-        )
+        # Translate CLI-style keys to the clean tool field names.
+        clean_args: dict[str, Any] = {}
+        for key, value in arguments.items():
+            if key.startswith("-"):
+                # "--level" -> "level", "-c" -> "c", "--log-file" -> "log_file"
+                clean_args[key.lstrip("-").replace("-", "_")] = value
+            else:
+                clean_args[key] = value
+        return self._post(f"/{command}", clean_args)
 
     # -- calendar / event / task API ----------------------------------
 
@@ -220,8 +228,8 @@ class MCPClient:
     def tool(self, command: str) -> Callable[..., dict[str, Any]]:
         """Return a callable bound to *command*.
 
-        Equivalent to ``lambda **kw: self.execute(command, **kw)`` but
-        with a clearer repr and bound name.
+        Calls the command's dedicated ``/{command}`` route; see
+        :meth:`execute`.
         """
 
         def _call(**kwargs: Any) -> dict[str, Any]:

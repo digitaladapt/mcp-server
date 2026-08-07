@@ -97,70 +97,61 @@ class TestValidate:
 
 
 # ---------------------------------------------------------------------------
-# POST /execute
+# Generic /execute endpoint (removed)
 # ---------------------------------------------------------------------------
 
 
-class TestExecute:
-    """Command execution endpoint."""
+class TestExecuteRemoved:
+    """The generic ``POST /execute`` endpoint was removed so registry
+    commands are only available via their dedicated routes."""
 
-    def test_execute_log_basic(self, app_client):
+    def test_execute_endpoint_gone(self, app_client):
         resp = app_client.post(
             "/execute",
             json={"command": "log", "arguments": {"message": "World"}},
         )
+        assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Dedicated command routes (POST /{command})
+# ---------------------------------------------------------------------------
+
+
+class TestDedicatedRoutes:
+    """Dedicated execution routes generated from the registry."""
+
+    def test_log_basic(self, app_client):
+        resp = app_client.post("/log", json={"message": "World"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert "World" in data["stdout"]
 
-    def test_execute_log_error_level(self, app_client):
+    def test_log_error_level_via_field_name(self, app_client):
         resp = app_client.post(
-            "/execute",
-            json={
-                "command": "log",
-                "arguments": {"message": "something broke", "--level": "error"},
-            },
+            "/log",
+            json={"message": "something broke", "level": "error"},
         )
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
         assert "ERROR" in data["stdout"]
 
-    def test_execute_log_missing_required_arg(self, app_client):
-        resp = app_client.post(
-            "/execute",
-            json={"command": "log", "arguments": {}},
-        )
-        assert resp.status_code == 400
-        detail = resp.json()["detail"]
-        assert "missing required argument" in detail.lower()
+    def test_log_missing_required_arg_returns_422(self, app_client):
+        resp = app_client.post("/log", json={})
+        assert resp.status_code == 422
 
-    def test_execute_log_unknown_argument(self, app_client):
-        resp = app_client.post(
-            "/execute",
-            json={
-                "command": "log",
-                "arguments": {"message": "World", "bogus": "value"},
-            },
-        )
-        assert resp.status_code == 400
-        detail = resp.json()["detail"]
-        assert "unknown argument" in detail.lower()
+    def test_log_unknown_argument_returns_422(self, app_client):
+        resp = app_client.post("/log", json={"message": "World", "bogus": "value"})
+        assert resp.status_code == 422
 
-    def test_execute_unknown_command_returns_404(self, app_client):
-        resp = app_client.post(
-            "/execute",
-            json={"command": "nonexistent", "arguments": {}},
-        )
+    def test_nonexistent_route_returns_404(self, app_client):
+        resp = app_client.post("/nonexistent", json={})
         assert resp.status_code == 404
-        assert resp.json()["detail"] == "Command not found"
 
-    def test_execute_log_read(self, app_client):
-        resp = app_client.post(
-            "/execute",
-            json={"command": "log_read", "arguments": {}},
-        )
+    def test_log_read_default(self, app_client):
+        resp = app_client.post("/log_read", json={})
         assert resp.status_code == 200
         data = resp.json()
         assert data["success"] is True
