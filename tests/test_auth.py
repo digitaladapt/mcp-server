@@ -19,6 +19,18 @@ from collections.abc import Generator
 import pytest
 from fastapi.testclient import TestClient
 
+# Modules that capture ``verify_api_key`` (or otherwise depend on the auth
+# module) at import time.  ``app.auth`` reads ``MCP_API_KEY`` at import, so
+# all of these must be re-imported together to keep the route dependency
+# closures and the imported module in sync.
+_AUTH_DEPENDENT_MODULES = (
+    "app.main",
+    "app.caldav_routes",
+    "app.gitea_routes",
+    "app.registry_routes",
+    "app.auth",
+)
+
 # --------------------------------------------------------------------------- #
 # Helpers to reload auth module with a specific env var
 # --------------------------------------------------------------------------- #
@@ -28,21 +40,21 @@ def _reload_auth_with_key(key: str | None) -> object:
 
     Returns the reloaded module so tests can inspect its functions.
     """
-    # Clear any cached import so the module-level constant is re-evaluated.
-    if "app.auth" in importlib.sys.modules:
-        del importlib.sys.modules["app.auth"]
-    if "app.main" in importlib.sys.modules:
-        del importlib.sys.modules["app.main"]
+    # Evict auth-dependent modules wholesale so the fresh import below
+    # re-links every ``verify_api_key`` reference (route closures included)
+    # to the same, current ``app.auth`` module object.
+    for mod_name in _AUTH_DEPENDENT_MODULES:
+        importlib.sys.modules.pop(mod_name, None)
 
     if key is None:
         os.environ.pop("MCP_API_KEY", None)
     else:
         os.environ["MCP_API_KEY"] = key
 
+    # Fresh imports (not importlib.reload) so every module re-executes its
+    # import statements against the new app.auth object.
     import app.auth  # noqa: WPS433  (intentional re-import)
-    importlib.reload(app.auth)
     import app.main  # noqa: WPS433
-    importlib.reload(app.main)
     return app.auth
 
 
@@ -94,10 +106,7 @@ class TestAuthDisabled:
         assert resp.status_code == 200
 
     def test_execute_accessible_without_header(self, no_auth_client: TestClient) -> None:
-        resp = no_auth_client.post(
-            "/execute",
-            json={"command": "log", "arguments": {"message": "test"}},
-        )
+        resp = no_auth_client.post("/log", json={"message": "test"})
         assert resp.status_code == 200
 
     def test_validate_accessible_without_header(self, no_auth_client: TestClient) -> None:
@@ -141,18 +150,15 @@ class TestAuthEnabled:
     def test_execute_without_header_returns_401(
         self, auth_client: TestClient,
     ) -> None:
-        resp = auth_client.post(
-            "/execute",
-            json={"command": "log", "arguments": {"message": "test"}},
-        )
+        resp = auth_client.post("/log", json={"message": "test"})
         assert resp.status_code == 401
 
     def test_execute_with_correct_key_works(
         self, auth_client: TestClient,
     ) -> None:
         resp = auth_client.post(
-            "/execute",
-            json={"command": "log", "arguments": {"message": "test"}},
+            "/log",
+            json={"message": "test"},
             headers={"X-API-Key": "test-secret-key"},
         )
         assert resp.status_code == 200

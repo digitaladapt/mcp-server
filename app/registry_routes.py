@@ -3,11 +3,10 @@
 For each command defined in ``registry/*.yaml``, this module creates a
 dedicated ``POST /{command_name}`` route with a Pydantic request model
 derived from the command's argument specs.  This means the platform can
-read the OpenAPI schema and surface each command as a **native tool** —
-no more generic ``POST /execute`` indirection.
+read the OpenAPI schema and surface each command as a **native tool**.
 
-The generic ``POST /execute`` endpoint in ``main.py`` remains fully
-functional as a fallback.
+These dedicated routes are the *only* way to execute registry commands —
+there is no generic execute endpoint.
 
 Exposes (dynamically, one per registry command):
   POST /{command_name}  – execute the command with typed arguments
@@ -22,7 +21,7 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, Field, create_model
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from .auth import verify_api_key
 from .executor import run_command
@@ -33,7 +32,8 @@ logger = logging.getLogger(__name__)
 
 # ── Reserved paths that already have dedicated routes ──────────────── #
 # If a registry command's name collides with one of these, we skip
-# generating a dedicated route (the command still works via POST /execute).
+# generating a dedicated route (the command stays registered but is not
+# executable over HTTP).
 _RESERVED_PATHS: set[str] = {
     "health",
     "commands",
@@ -150,16 +150,14 @@ def build_request_model(schema: CommandSchema) -> type[BaseModel]:
         py_type, field_info = _field_info(schema, spec.name)
         field_definitions[field_name] = (py_type, field_info)
 
-    model = create_model(
+    # populate_by_name lets callers use field names *or* aliases;
+    # extra="forbid" rejects unknown arguments with a clear 422 error.
+    return create_model(
         f"{schema.name}_Request",
-        **field_definitions,
         __base__=BaseModel,
+        __config__=ConfigDict(populate_by_name=True, extra="forbid"),
+        **field_definitions,
     )
-    # Allow population by field name AND alias so callers can use either.
-    model.model_config = {
-        "populate_by_name": True,
-    }
-    return model
 
 
 def _model_to_args(model: BaseModel, schema: CommandSchema) -> dict[str, Any]:
@@ -191,7 +189,9 @@ def create_registry_router() -> APIRouter:
     """Create an APIRouter with one route per registered command.
 
     Commands whose names collide with reserved paths (existing CalDAV,
-    Gitea, or core routes) are skipped with a warning.
+    Gitea, or core routes) are skipped with a warning — they remain
+    registered (still listed by ``GET /commands``) but have no HTTP
+    execution route.
     """
     router = APIRouter(
         prefix="",
@@ -205,7 +205,8 @@ def create_registry_router() -> APIRouter:
         if name in _RESERVED_PATHS:
             logger.warning(
                 "Skipping dedicated route for command '%s' — name "
-                "collides with a reserved path. Use POST /execute instead.",
+                "collides with a reserved path, so it cannot be executed "
+                "over HTTP. Rename it in the registry to enable execution.",
                 name,
             )
             continue
@@ -260,8 +261,7 @@ def create_registry_router() -> APIRouter:
             description=(
                 f"Execute the **{name}** command.\n\n"
                 f"Executable: `{schema.executable}`\n\n"
-                "This route is auto-generated from the registry YAML. "
-                "The generic `POST /execute` endpoint also works."
+                "This route is auto-generated from the registry YAML."
             ),
         )
 

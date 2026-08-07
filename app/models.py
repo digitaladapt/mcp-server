@@ -40,6 +40,7 @@ class ArgSpec(BaseModel):
     required: bool = False
     choices: list[Any] | None = None
     default: Any | None = None
+
     help: str | None = None
     # Optional clean name for the native tool parameter.  When set, this
     # becomes the Pydantic field name (and the OpenAPI property name),
@@ -87,13 +88,6 @@ class CommandSchema(BaseModel):
     description: str
     executable: str
     args: list[ArgSpec] = []
-
-
-class ExecuteRequest(BaseModel):
-    """Payload sent to ``POST /execute``."""
-
-    command: str
-    arguments: dict[str, Any] = {}
 
 
 class ExecuteResult(BaseModel):

@@ -5,8 +5,11 @@ Exposes:
   GET  /commands          – list all registered commands (auth if configured)
   GET  /commands/{name}   – retrieve a single command's schema
   GET  /validate          – validate all registry files
-  POST /execute           – validate payload and run a command (generic)
   POST /{command}         – dedicated route per registry command (auto-generated)
+
+Registry commands are only exposed through their dedicated routes, so the
+platform surfaces each one as a native, typed tool.  There is no generic
+execute endpoint.
 """
 
 import logging
@@ -15,9 +18,8 @@ from fastapi import Depends, FastAPI, HTTPException
 
 from .auth import verify_api_key
 from .caldav_routes import router as caldav_router
-from .executor import run_command
 from .gitea_routes import router as gitea_router
-from .models import CommandSchema, ExecuteRequest, ExecuteResult, ValidationResult
+from .models import CommandSchema, ValidationResult
 from .registry import get_command_schema, list_commands, validate_registry
 from .registry_routes import router as registry_router
 
@@ -74,18 +76,3 @@ async def get_command(
 async def validate(_: bool = Depends(verify_api_key)) -> ValidationResult:
     """Validate all registry files and return a detailed report."""
     return validate_registry()
-
-
-@app.post("/execute", response_model=ExecuteResult)
-async def execute(
-    req: ExecuteRequest,
-    _: bool = Depends(verify_api_key),
-) -> ExecuteResult:
-    """Validate and execute a registered command."""
-    schema = get_command_schema(req.command)
-    if schema is None:
-        raise HTTPException(status_code=404, detail="Command not found")
-    try:
-        return run_command(schema, req.arguments)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))

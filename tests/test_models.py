@@ -1,9 +1,8 @@
 """Tests for the Pydantic models in ``app.models``.
 
-Covers :class:`ArgSpec`, :class:`CommandSchema`, :class:`ExecuteRequest`,
-:class:`ExecuteResult`, :class:`ValidationIssue`, and
-:class:`ValidationResult`.  Every test is self-contained — no fixtures or
-external state required.
+Covers :class:`ArgSpec`, :class:`CommandSchema`, :class:`ExecuteResult`,
+:class:`ValidationIssue`, and :class:`ValidationResult`.  Every test is
+self-contained — no fixtures or external state required.
 """
 
 from __future__ import annotations
@@ -14,7 +13,6 @@ from pydantic import ValidationError
 from app.models import (
     ArgSpec,
     CommandSchema,
-    ExecuteRequest,
     ExecuteResult,
     ValidationIssue,
     ValidationResult,
@@ -152,27 +150,6 @@ class TestCommandSchema:
         assert len(schema.args) == 2
         assert schema.args[0].name == "name"
         assert schema.args[1].is_flag is True
-
-
-# --------------------------------------------------------------------------- #
-# ExecuteRequest
-# --------------------------------------------------------------------------- #
-
-class TestExecuteRequest:
-    """Unit tests for :class:`ExecuteRequest`."""
-
-    def test_defaults_empty_arguments(self):
-        req = ExecuteRequest(command="hello")
-        assert req.command == "hello"
-        assert req.arguments == {}
-
-    def test_with_arguments(self):
-        req = ExecuteRequest(
-            command="hello",
-            arguments={"name": "world", "--verbose": True},
-        )
-        assert req.command == "hello"
-        assert req.arguments == {"name": "world", "--verbose": True}
 
 
 # --------------------------------------------------------------------------- #
