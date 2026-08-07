@@ -16,7 +16,7 @@ args:
     type: flag
     required: false
     default: true
-    field_name: quiet
+    hidden: true
     help: Quiet mode — suppresses echoing input back. Forced on by default.
   - name: -a
     type: flag

@@ -144,6 +144,8 @@ def build_request_model(schema: CommandSchema) -> type[BaseModel]:
     field_definitions: dict[str, Any] = {}
 
     for spec in schema.args:
+        if spec.hidden:
+            continue
         field_name = _get_field_name(spec)
         py_type, field_info = _field_info(schema, spec.name)
         field_definitions[field_name] = (py_type, field_info)

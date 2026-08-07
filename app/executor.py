@@ -65,6 +65,18 @@ def _validate_and_build(
     for spec in schema.args:
         name = spec.name
 
+        # ---- hidden arg (always applied, never visible to caller) ----
+        if spec.hidden:
+            if spec.is_flag:
+                if spec.has_default and spec.default:
+                    cmd.append(name)
+            elif spec.has_default:
+                if spec.is_positional:
+                    cmd.append(str(spec.default))
+                else:
+                    cmd.extend([name, str(spec.default)])
+            continue
+
         # ---- flag (presence-only) -----------------------------------
         if spec.is_flag:
             if name in provided:

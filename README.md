@@ -165,6 +165,10 @@ args:
 |            |                 | When set, this becomes the OpenAPI property name   |
 |            |                 | (e.g. `title` instead of `-t`).  The original      |
 |            |                 | `name` is still used as the CLI flag.              |
+| `hidden`   | bool            | When `true`, the arg is invisible in the tool      |
+|            |                 | surface but always applied with its `default`      |
+|            |                 | value.  Use for flags that must always be passed   |
+|            |                 | but should never be controllable by the model.     |
 
 A `flag` type means presence-only (no value); the flag name is appended to
 the command line when the argument is truthy.

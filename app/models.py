@@ -47,6 +47,12 @@ class ArgSpec(BaseModel):
     # e.g. name="-t", field_name="title" → the tool shows ``title``
     # but the executor still passes ``-t`` to the script.
     field_name: str | None = None
+    # When True, the arg is hidden from the tool surface (excluded from
+    # the Pydantic model / OpenAPI schema) but always applied with its
+    # ``default`` value by the executor.  Used for flags that must always
+    # be passed but should never be visible to or controllable by the
+    # model (e.g. ``-q`` quiet mode on discord.sh).
+    hidden: bool = False
 
     @property
     def has_default(self) -> bool:
