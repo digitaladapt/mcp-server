@@ -67,9 +67,20 @@ Use `pydantic.create_model()` to build a request model per command:
 - `required: false` + no default → field is `Optional`, defaults `None`.
 
 Arg names like `-c`, `-q`, `--level` are not valid Python identifiers.
-Pydantic supports `Field(alias=...)` to map a clean Python field name
-(e.g. `color`) to the CLI arg name (e.g. `-c`).  We generate a safe
-field name by stripping leading dashes.
+The YAML `field_name` key lets you specify a clean parameter name that
+maps to the CLI flag internally.  For example:
+
+```yaml
+args:
+  - name: -t
+    field_name: title
+    type: string
+    help: Title of the message.
+```
+
+This produces an OpenAPI parameter named `title` (not `-t`), while the
+executor still passes `-t` to the script.  When `field_name` is omitted,
+a safe name is auto-derived by stripping leading dashes.
 
 ### Integration in `main.py`
 

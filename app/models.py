@@ -41,6 +41,12 @@ class ArgSpec(BaseModel):
     choices: list[Any] | None = None
     default: Any | None = None
     help: str | None = None
+    # Optional clean name for the native tool parameter.  When set, this
+    # becomes the Pydantic field name (and the OpenAPI property name),
+    # while ``name`` is kept as the alias for CLI argument building.
+    # e.g. name="-t", field_name="title" → the tool shows ``title``
+    # but the executor still passes ``-t`` to the script.
+    field_name: str | None = None
 
     @property
     def has_default(self) -> bool:

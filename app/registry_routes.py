@@ -63,6 +63,17 @@ def _safe_field_name(arg_name: str) -> str:
     return arg_name.lstrip("-").replace("-", "_")
 
 
+def _get_field_name(spec) -> str:
+    """Return the Pydantic field name for an arg spec.
+
+    If ``spec.field_name`` is set (via the YAML ``field_name`` key),
+    use that clean name.  Otherwise, derive one from the CLI arg name.
+    """
+    if spec.field_name:
+        return spec.field_name
+    return _safe_field_name(spec.name)
+
+
 def _type_for_spec(spec_type: str, choices: list[Any] | None) -> type:
     """Map a YAML arg type to a Python/Pydantic type.
 
@@ -95,11 +106,16 @@ def _field_info(
 
     py_type = _type_for_spec(spec.type, spec.choices)
 
-    # Build field kwargs
+    # Build field kwargs.
+    # When field_name is set, we DON'T use alias — the clean name is
+    # both the Python field name and the OpenAPI property name.
+    # When field_name is NOT set, we use alias to preserve the original
+    # CLI arg name (e.g. "-c") as the OpenAPI property name.
     field_kwargs: dict[str, Any] = {
-        "alias": arg_name,
         "description": spec.help or "",
     }
+    if not spec.field_name:
+        field_kwargs["alias"] = arg_name
 
     if spec.required:
         # Required field — no default, must be provided.
@@ -128,7 +144,7 @@ def build_request_model(schema: CommandSchema) -> type[BaseModel]:
     field_definitions: dict[str, Any] = {}
 
     for spec in schema.args:
-        field_name = _safe_field_name(spec.name)
+        field_name = _get_field_name(spec)
         py_type, field_info = _field_info(schema, spec.name)
         field_definitions[field_name] = (py_type, field_info)
 
@@ -147,19 +163,23 @@ def build_request_model(schema: CommandSchema) -> type[BaseModel]:
 def _model_to_args(model: BaseModel, schema: CommandSchema) -> dict[str, Any]:
     """Convert a validated request model back to a dict of CLI arguments.
 
-    Uses the original arg names (aliases) as keys, and omits ``None``
-    values for optional fields that the caller didn't provide.
+    Maps Pydantic field names back to the original CLI arg names, and
+    omits ``None`` values for optional fields that the caller didn't
+    provide.
     """
-    raw = model.model_dump(by_alias=True, exclude_defaults=False)
+    # Dump by field name (not alias) so we can look up by _get_field_name().
+    raw = model.model_dump(exclude_defaults=False)
     result: dict[str, Any] = {}
 
     for spec in schema.args:
-        val = raw.get(spec.name)
+        field_name = _get_field_name(spec)
+        val = raw.get(field_name)
         if val is None:
             continue
         # For bool/flag args, only include if truthy
         if spec.type in ("bool", "flag") and not val:
             continue
+        # Use the original CLI arg name as the key for the executor.
         result[spec.name] = val
 
     return result
@@ -189,7 +209,7 @@ def create_registry_router() -> APIRouter:
             continue
 
         # Check for duplicate field names after sanitization
-        field_names = [_safe_field_name(s.name) for s in schema.args]
+        field_names = [_get_field_name(s) for s in schema.args]
         if len(field_names) != len(set(field_names)):
             logger.error(
                 "Skipping command '%s' — two or more args map to the "

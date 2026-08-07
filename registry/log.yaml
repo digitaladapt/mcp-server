@@ -11,6 +11,7 @@ args:
   - name: --level
     type: string
     required: false
+    field_name: level
     choices:
       - info
       - warn

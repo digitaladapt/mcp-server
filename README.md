@@ -161,6 +161,10 @@ args:
 | `default`  | any             | Optional default value, auto-applied when the arg  |
 |            |                 | is omitted by the caller.                           |
 | `help`     | string          | Human-readable description.                        |
+| `field_name`| string         | Optional clean name for the native tool parameter. |
+|            |                 | When set, this becomes the OpenAPI property name   |
+|            |                 | (e.g. `title` instead of `-t`).  The original      |
+|            |                 | `name` is still used as the CLI flag.              |
 
 A `flag` type means presence-only (no value); the flag name is appended to
 the command line when the argument is truthy.
@@ -194,12 +198,15 @@ For example, `registry/discord.yaml` generates:
 ```
 POST /discord
   Body: discord_Request
-    -q:      boolean (default: true)   — quiet mode
-    -a:      boolean                   — alert mode
-    -c:      enum[22 colors]           — embed color
-    -t:      string                    — title
+    quiet:   boolean (default: true)   — quiet mode (maps to -q)
+    alert:   boolean                   — alert mode (maps to -a)
+    color:   enum[22 colors]           — embed color (maps to -c)
+    title:   string                    — title (maps to -t)
     message: string (required)         — message body
 ```
+
+The `field_name` YAML key controls the parameter name shown to the model.
+When omitted, the arg `name` is used (with leading dashes stripped).
 
 The generic `POST /execute` endpoint remains available as a fallback.
 If a registry command's name collides with an existing route (e.g.

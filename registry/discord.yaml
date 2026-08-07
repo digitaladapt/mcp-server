@@ -16,14 +16,17 @@ args:
     type: flag
     required: false
     default: true
+    field_name: quiet
     help: Quiet mode — suppresses echoing input back. Forced on by default.
   - name: -a
     type: flag
     required: false
+    field_name: alert
     help: Send as a high-priority alert.
   - name: -c
     type: string
     required: false
+    field_name: color
     choices:
       - maroon
       - brown
@@ -51,6 +54,7 @@ args:
   - name: -t
     type: string
     required: false
+    field_name: title
     help: Title of the message.
   # --- positional -----------------------------------------------------
   - name: message
