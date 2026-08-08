@@ -246,25 +246,25 @@ class TestValidateAndBuild:
 class TestRunCommand:
     """Integration tests for the ``run_command`` function."""
 
-    def test_echo_success(self):
+    async def test_echo_success(self):
         schema = _schema("/bin/echo", ArgSpec(name="msg", type="string", required=True))
-        result = run_command(schema, {"msg": "hello"})
+        result = await run_command(schema, {"msg": "hello"})
         assert result.success is True
         assert result.exit_code == 0
         assert "hello" in result.stdout
 
-    def test_missing_required_raises_value_error(self):
+    async def test_missing_required_raises_value_error(self):
         schema = _schema("/bin/echo", ArgSpec(name="msg", type="string", required=True))
         with pytest.raises(ValueError, match="Missing required argument"):
-            run_command(schema, {})
+            await run_command(schema, {})
 
-    def test_nonexistent_executable_raises(self):
+    async def test_nonexistent_executable_raises(self):
         schema = _schema("/usr/local/bin/totally-not-real-binary")
         with pytest.raises(ValueError, match="Executable not found"):
-            run_command(schema, {})
+            await run_command(schema, {})
 
-    def test_false_exit_code_nonzero(self):
+    async def test_false_exit_code_nonzero(self):
         schema = _schema("/bin/false")
-        result = run_command(schema, {})
+        result = await run_command(schema, {})
         assert result.success is False
         assert result.exit_code == 1

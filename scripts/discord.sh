@@ -231,7 +231,7 @@ fi
 content="$content}]}"
 
 # actually send the message to discord
-response=$(curl -s -H "Content-Type: application/json" -X POST -d "$content" "$hookUrl" | jq -r '.message')
+response=$(curl -s --max-time 10 --connect-timeout 5 -H "Content-Type: application/json" -X POST -d "$content" "$hookUrl" | jq -r '.message')
 
 # response message is null unless there was an issue
 if [[ "$response" != "null" ]]; then

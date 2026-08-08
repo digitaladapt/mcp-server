@@ -22,6 +22,7 @@ from __future__ import annotations
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from starlette.concurrency import run_in_threadpool
 
 from .auth import verify_api_key
 from .caldav_models import (
@@ -104,7 +105,7 @@ async def list_calendars() -> CalendarListResponse:
     """List all accessible calendars with editability info."""
     svc = _get_service()
     try:
-        cals = svc.list_calendars()
+        cals = await run_in_threadpool(svc.list_calendars)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"CalDAV error: {exc}")
     editable = [c for c in cals if c.editable]
@@ -130,7 +131,7 @@ async def list_events(
     start_dt = _parse_dt_param(start)
     end_dt = _parse_dt_param(end)
     try:
-        events = svc.list_events(start=start_dt, end=end_dt)
+        events = await run_in_threadpool(svc.list_events, start=start_dt, end=end_dt)
     except CalDAVError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -143,7 +144,7 @@ async def get_event(uid: str) -> CalendarEvent:
     """Get a single event by UID."""
     svc = _get_service()
     try:
-        event = svc.get_event(uid)
+        event = await run_in_threadpool(svc.get_event, uid)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"CalDAV error: {exc}")
     if event is None:
@@ -156,7 +157,7 @@ async def create_event(req: CreateEventRequest) -> CalendarEvent:
     """Create a new event on the editable calendar."""
     svc = _get_service()
     try:
-        return svc.create_event(req)
+        return await run_in_threadpool(svc.create_event, req)
     except CalDAVError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -168,7 +169,7 @@ async def update_event(uid: str, req: UpdateEventRequest) -> CalendarEvent:
     """Update an existing event on the editable calendar."""
     svc = _get_service()
     try:
-        return svc.update_event(uid, req)
+        return await run_in_threadpool(svc.update_event, uid, req)
     except CalDAVError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -180,7 +181,7 @@ async def delete_event(uid: str) -> DeleteResponse:
     """Delete an event from the editable calendar."""
     svc = _get_service()
     try:
-        deleted = svc.delete_event(uid)
+        deleted = await run_in_threadpool(svc.delete_event, uid)
     except CalDAVError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -199,7 +200,7 @@ async def list_tasks() -> TaskListResponse:
     """List tasks across all accessible calendars."""
     svc = _get_service()
     try:
-        tasks = svc.list_tasks()
+        tasks = await run_in_threadpool(svc.list_tasks)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"CalDAV error: {exc}")
     return TaskListResponse(tasks=tasks, total=len(tasks))
@@ -210,7 +211,7 @@ async def get_task(uid: str) -> CalendarTask:
     """Get a single task by UID."""
     svc = _get_service()
     try:
-        task = svc.get_task(uid)
+        task = await run_in_threadpool(svc.get_task, uid)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"CalDAV error: {exc}")
     if task is None:
@@ -223,7 +224,7 @@ async def create_task(req: CreateTaskRequest) -> CalendarTask:
     """Create a new task on the editable calendar."""
     svc = _get_service()
     try:
-        return svc.create_task(req)
+        return await run_in_threadpool(svc.create_task, req)
     except CalDAVError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -235,7 +236,7 @@ async def update_task(uid: str, req: UpdateTaskRequest) -> CalendarTask:
     """Update an existing task on the editable calendar."""
     svc = _get_service()
     try:
-        return svc.update_task(uid, req)
+        return await run_in_threadpool(svc.update_task, uid, req)
     except CalDAVError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
@@ -247,7 +248,7 @@ async def delete_task(uid: str) -> DeleteResponse:
     """Delete a task from the editable calendar."""
     svc = _get_service()
     try:
-        deleted = svc.delete_task(uid)
+        deleted = await run_in_threadpool(svc.delete_task, uid)
     except CalDAVError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:  # noqa: BLE001
