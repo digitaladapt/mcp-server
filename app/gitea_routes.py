@@ -41,6 +41,7 @@ Returns 503 if Gitea is not configured (GITEA_URL unset).
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from starlette.concurrency import run_in_threadpool
 
 from .auth import verify_api_key
 from .gitea_models import (
@@ -123,7 +124,7 @@ async def get_repo(owner: str, repo: str) -> RepoDetail:
     """Get information about a specific repository."""
     svc = _get_service()
     try:
-        return svc.get_repo(owner=owner, repo=repo)
+        return await run_in_threadpool(svc.get_repo, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -133,7 +134,7 @@ async def list_repos() -> RepoListResponse:
     """List repositories accessible to the configured token."""
     svc = _get_service()
     try:
-        repos = svc.list_repos()
+        repos = await run_in_threadpool(svc.list_repos)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return RepoListResponse(repos=repos, total=len(repos))
@@ -150,7 +151,7 @@ async def list_commits(
     """List recent commits in a repository."""
     svc = _get_service()
     try:
-        commits = svc.list_commits(sha=sha, owner=owner, repo=repo, page=page, limit=limit)
+        commits = await run_in_threadpool(svc.list_commits, sha=sha, owner=owner, repo=repo, page=page, limit=limit)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return CommitListResponse(commits=commits, total=len(commits))
@@ -161,7 +162,7 @@ async def compare_refs(owner: str, repo: str, base: str, head: str) -> CompareRe
     """Compare two refs (branches, tags, or SHAs) in a repository."""
     svc = _get_service()
     try:
-        return svc.compare(base, head, owner=owner, repo=repo)
+        return await run_in_threadpool(svc.compare, base, head, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -182,7 +183,8 @@ async def list_issues(
     """List issues in the (default) repository."""
     svc = _get_service()
     try:
-        issues = svc.list_issues(
+        issues = await run_in_threadpool(
+            svc.list_issues,
             state=state, labels=labels, owner=owner, repo=repo, page=page, limit=limit,
         )
     except GiteaError as exc:
@@ -199,7 +201,7 @@ async def get_issue(
     """Get a single issue by its number."""
     svc = _get_service()
     try:
-        issue = svc.get_issue(index, owner=owner, repo=repo)
+        issue = await run_in_threadpool(svc.get_issue, index, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     if issue is None:
@@ -216,7 +218,7 @@ async def create_issue(
     """Create a new issue in the (default) repository."""
     svc = _get_service()
     try:
-        return svc.create_issue(req, owner=owner, repo=repo)
+        return await run_in_threadpool(svc.create_issue, req, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -231,7 +233,7 @@ async def update_issue(
     """Update an existing issue (e.g. close it, change title)."""
     svc = _get_service()
     try:
-        return svc.update_issue(index, req, owner=owner, repo=repo)
+        return await run_in_threadpool(svc.update_issue, index, req, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -245,7 +247,7 @@ async def list_issue_comments(
     """List comments on an issue."""
     svc = _get_service()
     try:
-        comments = svc.list_issue_comments(index, owner=owner, repo=repo)
+        comments = await run_in_threadpool(svc.list_issue_comments, index, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return CommentListResponse(comments=comments, total=len(comments))
@@ -261,7 +263,7 @@ async def create_issue_comment(
     """Comment on an issue."""
     svc = _get_service()
     try:
-        return svc.create_issue_comment(index, req, owner=owner, repo=repo)
+        return await run_in_threadpool(svc.create_issue_comment, index, req, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -278,7 +280,7 @@ async def list_branches(
     """List branches in the (default) repository."""
     svc = _get_service()
     try:
-        branches = svc.list_branches(owner=owner, repo=repo)
+        branches = await run_in_threadpool(svc.list_branches, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return BranchListResponse(branches=branches, total=len(branches))
@@ -293,7 +295,7 @@ async def create_branch(
     """Create a new branch from an existing ref."""
     svc = _get_service()
     try:
-        return svc.create_branch(req, owner=owner, repo=repo)
+        return await run_in_threadpool(svc.create_branch, req, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -307,7 +309,7 @@ async def delete_branch(
     """Delete a branch."""
     svc = _get_service()
     try:
-        deleted = svc.delete_branch(name, owner=owner, repo=repo)
+        deleted = await run_in_threadpool(svc.delete_branch, name, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if not deleted:
@@ -330,7 +332,7 @@ async def list_prs(
     """List pull requests in the (default) repository."""
     svc = _get_service()
     try:
-        prs = svc.list_prs(state=state, owner=owner, repo=repo, page=page, limit=limit)
+        prs = await run_in_threadpool(svc.list_prs, state=state, owner=owner, repo=repo, page=page, limit=limit)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return PRListResponse(pulls=prs, total=len(prs))
@@ -345,7 +347,7 @@ async def get_pr(
     """Get a single pull request by its number."""
     svc = _get_service()
     try:
-        pr = svc.get_pr(index, owner=owner, repo=repo)
+        pr = await run_in_threadpool(svc.get_pr, index, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     if pr is None:
@@ -362,7 +364,7 @@ async def create_pr(
     """Create a new pull request."""
     svc = _get_service()
     try:
-        return svc.create_pr(req, owner=owner, repo=repo)
+        return await run_in_threadpool(svc.create_pr, req, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -377,7 +379,7 @@ async def update_pr(
     """Update a pull request (e.g. close it, change title)."""
     svc = _get_service()
     try:
-        return svc.update_pr(index, req, owner=owner, repo=repo)
+        return await run_in_threadpool(svc.update_pr, index, req, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -392,11 +394,11 @@ async def merge_pr(
     """Merge a pull request."""
     svc = _get_service()
     try:
-        merged = svc.merge_pr(index, req, owner=owner, repo=repo)
+        merged = await run_in_threadpool(svc.merge_pr, index, req, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     # Fetch the updated PR to get merge_commit_sha
-    pr = svc.get_pr(index, owner=owner, repo=repo)
+    pr = await run_in_threadpool(svc.get_pr, index, owner=owner, repo=repo)
     return MergeResponse(
         merged=merged,
         pr_number=index,
@@ -413,7 +415,7 @@ async def list_pr_reviews(
     """List reviews on a pull request."""
     svc = _get_service()
     try:
-        reviews = svc.list_pr_reviews(index, owner=owner, repo=repo)
+        reviews = await run_in_threadpool(svc.list_pr_reviews, index, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return ReviewListResponse(reviews=reviews, total=len(reviews))
@@ -429,7 +431,7 @@ async def create_pr_comment(
     """Comment on a pull request."""
     svc = _get_service()
     try:
-        return svc.create_pr_comment(index, req, owner=owner, repo=repo)
+        return await run_in_threadpool(svc.create_pr_comment, index, req, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -448,7 +450,7 @@ async def list_actions(
     """List CI workflow runs in the (default) repository."""
     svc = _get_service()
     try:
-        runs = svc.list_actions(owner=owner, repo=repo, page=page, limit=limit)
+        runs = await run_in_threadpool(svc.list_actions, owner=owner, repo=repo, page=page, limit=limit)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return ActionRunListResponse(runs=runs, total=len(runs))
@@ -463,7 +465,7 @@ async def get_commit_statuses(
     """Get CI status checks for a specific commit."""
     svc = _get_service()
     try:
-        statuses = svc.get_commit_statuses(sha, owner=owner, repo=repo)
+        statuses = await run_in_threadpool(svc.get_commit_statuses, sha, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return CommitStatusListResponse(statuses=statuses, total=len(statuses))
@@ -483,7 +485,7 @@ async def list_releases(
     """List releases in the (default) repository."""
     svc = _get_service()
     try:
-        releases = svc.list_releases(owner=owner, repo=repo, page=page, limit=limit)
+        releases = await run_in_threadpool(svc.list_releases, owner=owner, repo=repo, page=page, limit=limit)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     return ReleaseListResponse(releases=releases, total=len(releases))
@@ -498,7 +500,7 @@ async def get_release(
     """Get a single release by ID."""
     svc = _get_service()
     try:
-        release = svc.get_release(release_id, owner=owner, repo=repo)
+        release = await run_in_threadpool(svc.get_release, release_id, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
     if release is None:
@@ -515,7 +517,7 @@ async def create_release(
     """Create a new release."""
     svc = _get_service()
     try:
-        return svc.create_release(req, owner=owner, repo=repo)
+        return await run_in_threadpool(svc.create_release, req, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=502, detail=str(exc))
 
@@ -530,7 +532,7 @@ async def update_release(
     """Update an existing release."""
     svc = _get_service()
     try:
-        return svc.update_release(release_id, req, owner=owner, repo=repo)
+        return await run_in_threadpool(svc.update_release, release_id, req, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
@@ -544,7 +546,7 @@ async def delete_release(
     """Delete a release."""
     svc = _get_service()
     try:
-        deleted = svc.delete_release(release_id, owner=owner, repo=repo)
+        deleted = await run_in_threadpool(svc.delete_release, release_id, owner=owner, repo=repo)
     except GiteaError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     if not deleted:

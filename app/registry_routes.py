@@ -17,7 +17,7 @@ All routes require API key authentication when MCP_API_KEY is set.
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -235,13 +235,13 @@ def create_registry_router() -> APIRouter:
         def _make_handler(
             cmd_schema: CommandSchema = schema,
             req_model: type[BaseModel] = request_model,
-        ) -> Callable[..., ExecuteResult]:
+        ) -> Callable[..., Awaitable[ExecuteResult]]:
             """Create a route handler bound to a specific command schema."""
 
-            def handler(req: Any) -> ExecuteResult:
+            async def handler(req: Any) -> ExecuteResult:
                 arguments = _model_to_args(req, cmd_schema)
                 try:
-                    return run_command(cmd_schema, arguments)
+                    return await run_command(cmd_schema, arguments)
                 except ValueError as e:
                     raise HTTPException(status_code=400, detail=str(e))
 
