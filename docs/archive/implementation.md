@@ -1,4 +1,10 @@
-# Implementation Details for MCP Server
+> **Archived** — This was the original implementation plan. Many details have
+> changed: the `POST /execute` endpoint was removed in favor of dedicated
+> per-command routes, the file layout has grown to include CalDAV and Gitea
+> modules, and the example commands (`hello.yaml`, `list_files.yaml`) were
+> removed. Kept for historical context.
+
+# Implementation Details for MCP Server (Original Plan)
 
 ## File Layout
 ```

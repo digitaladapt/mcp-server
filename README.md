@@ -14,7 +14,7 @@ the HTTP API and executes them through a validated, sandboxed endpoint.
 - **Secure execution** – arguments are validated against the schema before
   the command is ever run; a 30 s timeout prevents hangs.
 - **Optional API key** – set `MCP_API_KEY` to require authentication on all
-  endpoints except `/health`.
+  endpoints except `/api/health` and `/api/about`.
 
 ## Quick start
 
@@ -31,15 +31,16 @@ export MCP_API_KEY="your-secret-key"
 
 The server now listens on `http://127.0.0.1:8000`.
 
-If `MCP_API_KEY` is set, all endpoints except `/health` require an
-`X-API-Key` header matching the key.  If unset, the server runs open
-(suitable for local development or trusted networks).
+If `MCP_API_KEY` is set, all endpoints except `/api/health` and `/api/about`
+require an `X-API-Key` header matching the key.  If unset, the server runs
+open (suitable for local development or trusted networks).
 
 ## API
 
 | Method | Path                 | Description                                  |
 |--------|----------------------|----------------------------------------------|
-| GET    | `/health`            | Liveness probe (no auth required)            |
+| GET    | `/api/health`        | Liveness probe (no auth required)            |
+| GET    | `/api/about`         | App name & version (no auth required)         |
 | GET    | `/commands`          | List all registered commands                 |
 | GET    | `/commands/{name}`   | Retrieve one command's schema                |
 | GET    | `/validate`          | Validate all registry files (detailed report) |
@@ -55,6 +56,32 @@ If `MCP_API_KEY` is set, all endpoints except `/health` require an
 | POST   | `/tasks`             | Create a task (editable calendar only)       |
 | PUT    | `/tasks/{uid}`       | Update a task (editable calendar only)       |
 | DELETE | `/tasks/{uid}`       | Delete a task (editable calendar only)       |
+| GET    | `/repos/{owner}/{repo}` | Get repository info                      |
+| GET    | `/repos/{owner}/{repo}/commits` | List recent commits                |
+| GET    | `/repos/{owner}/{repo}/compare` | Compare two refs (branches/tags)   |
+| GET    | `/issues`            | List issues (default repo or owner/repo)     |
+| GET    | `/issues/{index}`   | Get a single issue by number                  |
+| POST   | `/issues`            | Create a new issue                           |
+| PATCH  | `/issues/{index}`   | Update an issue (e.g. close it)              |
+| GET    | `/issues/{index}/comments` | List comments on an issue             |
+| POST   | `/issues/{index}/comments` | Comment on an issue                  |
+| GET    | `/branches`          | List branches (default repo or owner/repo)   |
+| POST   | `/branches`          | Create a new branch                          |
+| DELETE | `/branches/{name}`   | Delete a branch                              |
+| GET    | `/prs`               | List pull requests                           |
+| POST   | `/prs`               | Create a pull request                        |
+| GET    | `/prs/{index}`       | Get a single PR                              |
+| PATCH  | `/prs/{index}`       | Update a PR (e.g. close it)                  |
+| POST   | `/prs/{index}/merge` | Merge a pull request                         |
+| GET    | `/prs/{index}/reviews` | List reviews on a PR                       |
+| POST   | `/prs/{index}/comments` | Comment on a PR                           |
+| GET    | `/actions`           | List CI workflow runs                        |
+| GET    | `/commits/{sha}/statuses` | Get CI status checks for a commit       |
+| GET    | `/releases`          | List releases                                |
+| POST   | `/releases`          | Create a release                             |
+| GET    | `/releases/{release_id}` | Get a single release                     |
+| PATCH  | `/releases/{release_id}` | Update a release                         |
+| DELETE | `/releases/{release_id}` | Delete a release                         |
 
 ### Example
 
@@ -303,14 +330,13 @@ mcp_server/
 │   ├─ test_api.py
 │   ├─ test_client.py
 │   ├─ test_auth.py
-│   └─ test_caldav.py
+│   ├─ test_caldav.py
+│   └─ test_gitea.py
 ├─ docker-compose.yml     # easy local run with volumes
 ├─ .env.example           # Docker env var template (webhook URL, etc.)
 ├─ .dockerignore          # excludes venv, secrets, tests, etc.
 ├─ pyproject.toml         # package metadata + pytest config
-├─ requirements.txt
-├─ planning.md
-└─ implementation.md
+└─ requirements.txt
 ```
 
 ## Discord setup
@@ -334,8 +360,6 @@ docker compose up -d   # or uvicorn directly
 `discord.sh` reads `config.sh` from its own directory, so the file must be
 at `scripts/config.sh`.  If `config.sh` is missing, the script falls back
 to environment variables (`DISCORD_GENERAL_HOOK`, etc.).
-
-## Logging
 
 ## CalDAV Calendar
 
@@ -416,6 +440,27 @@ mc.update_task("<uid>", status="COMPLETED")
 mc.delete_event("<uid>")
 mc.delete_task("<uid>")
 ```
+
+## Gitea Integration
+
+The server can connect to a Gitea instance to manage repositories,
+issues, pull requests, branches, releases, and CI actions. When
+`GITEA_URL` is not set, all Gitea endpoints return `503 Service
+Unavailable`.
+
+### Configuration
+
+```
+GITEA_URL=https://git.example.com
+GITEA_TOKEN=your-api-token
+GITEA_DEFAULT_OWNER=your-username
+GITEA_DEFAULT_REPO=your-repo
+```
+
+Issue, branch, PR, and release endpoints accept optional `owner` and
+`repo` query parameters that default to the configured values. Repository
+info, commits, and compare endpoints use path parameters
+(`/repos/{owner}/{repo}/...`).
 
 ## Logging
 
@@ -564,9 +609,9 @@ Then add a `registry/ruby_eval.yaml` pointing at `/usr/bin/ruby`.
 
 ## Testing
 
-The project includes a full pytest suite (233 tests) covering models,
-executor, registry, API endpoints, client library, authentication, and
-CalDAV calendar operations.
+The project includes a comprehensive pytest suite covering models,
+executor, registry, API endpoints, client library, authentication,
+CalDAV calendar operations, and Gitea integration.
 
 ```bash
 # Install dev dependencies

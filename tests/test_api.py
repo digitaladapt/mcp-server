@@ -8,7 +8,7 @@ log, log_read).
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
-# GET /health
+# GET /api/health
 # ---------------------------------------------------------------------------
 
 
@@ -16,9 +16,9 @@ class TestHealth:
     """Liveness probe."""
 
     def test_returns_ok(self, app_client):
-        resp = app_client.get("/health")
+        resp = app_client.get("/api/health")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        assert resp.json() == {"status": "healthy"}
 
 
 # ---------------------------------------------------------------------------

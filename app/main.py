@@ -17,6 +17,7 @@ import logging
 
 from fastapi import Depends, FastAPI, HTTPException
 
+from . import __version__
 from .auth import verify_api_key
 from .caldav_routes import router as caldav_router
 from .gitea_routes import router as gitea_router
@@ -35,7 +36,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="MCP Server",
     description="Modular Command Provider – exposes CLI commands as model tools.",
-    version="0.9.0",
+    version=__version__,
 )
 
 # Register the CalDAV calendar router (endpoints return 503 if unconfigured).

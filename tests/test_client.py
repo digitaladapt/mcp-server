@@ -40,7 +40,7 @@ def mcp_client() -> MCPClient:
 class TestHealth:
     def test_returns_ok(self, mcp_client: MCPClient) -> None:
         result = mcp_client.health()
-        assert result == {"status": "ok"}
+        assert result == {"status": "healthy"}
 
 
 # --------------------------------------------------------------------------- #
@@ -150,7 +150,7 @@ class TestContextManager:
     def test_context_manager_works(self) -> None:
         with MCPClient("http://test") as mc:
             mc._client = _make_test_client()
-            assert mc.health() == {"status": "ok"}
+            assert mc.health() == {"status": "healthy"}
 
     def test_exit_closes_client(self) -> None:
         mc = MCPClient("http://test")
