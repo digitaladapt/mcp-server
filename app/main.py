@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="MCP Server",
     description="Modular Command Provider – exposes CLI commands as model tools.",
-    version="0.6.0",
+    version="0.9.0",
 )
 
 # Register the CalDAV calendar router (endpoints return 503 if unconfigured).
