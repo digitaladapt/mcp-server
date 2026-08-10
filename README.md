@@ -638,7 +638,9 @@ tests/
 ├─ test_api.py          # HTTP endpoints via FastAPI TestClient
 ├─ test_client.py       # MCPClient via ASGI transport
 ├─ test_auth.py         # API key authentication (enabled/disabled/edge cases)
-└─ test_caldav.py       # CalDAV models, service, API endpoints, client (mocked)
+├─ test_caldav.py       # CalDAV models, service, API endpoints, client (mocked)
+├─ test_gitea.py        # Gitea models, service, API endpoints, client (mocked)
+└─ test_registry_routes.py # Registry route generation, model building, field aliasing
 ```
 
 The flag-default regression (discord's `-q` defaulting to `true`) is

@@ -28,8 +28,8 @@ tests/
 .coverage
 htmlcov/
 
-# Dev config
-pyproject.toml
+# Dev config (pyproject.toml kept for pip install -e . support)
+# pyproject.toml
 
 # Logs
 *.log
@@ -39,8 +39,7 @@ docker-compose.yml
 Dockerfile
 
 # Docs that don't belong in the image
-planning.md
-implementation.md
+DESIGN_CONSIDERATIONS.md
 
 # Secrets — NEVER bake config.sh into the image
 config.sh
