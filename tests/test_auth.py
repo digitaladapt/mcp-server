@@ -3,7 +3,7 @@
 Covers:
 - Auth disabled when MCP_API_KEY is unset/empty
 - Auth enabled when MCP_API_KEY is set
-- /health is always accessible
+- /api/health is always accessible
 - Correct API key grants access
 - Missing header returns 401
 - Wrong key returns 403
@@ -98,7 +98,7 @@ class TestAuthDisabled:
     """When MCP_API_KEY is unset, all endpoints are open."""
 
     def test_health_accessible(self, no_auth_client: TestClient) -> None:
-        resp = no_auth_client.get("/health")
+        resp = no_auth_client.get("/api/health")
         assert resp.status_code == 200
 
     def test_commands_accessible_without_header(self, no_auth_client: TestClient) -> None:
@@ -123,9 +123,9 @@ class TestAuthEnabled:
 
     def test_health_always_accessible(self, auth_client: TestClient) -> None:
         """Health endpoint must work even without the API key."""
-        resp = auth_client.get("/health")
+        resp = auth_client.get("/api/health")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        assert resp.json() == {"status": "healthy"}
 
     def test_commands_without_header_returns_401(
         self, auth_client: TestClient,

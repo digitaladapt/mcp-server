@@ -1,4 +1,9 @@
-# MCP Server – Modular Command Provider
+> **Archived** — This was the original planning document. The project has
+> evolved significantly since this was written: `POST /execute` was replaced
+> with dedicated per-command routes, CalDAV and Gitea integrations were
+> added, and the command registry was expanded. Kept for historical context.
+
+# MCP Server – Modular Command Provider (Original Planning)
 
 ## Goal
 Create a **Modular Command Provider (MCP) server** that exposes arbitrary terminal commands as reusable tools for a language model. The idea is to let developers register any existing CLI program (regardless of language) simply by describing its arguments and purpose. The model can then discover the command, compose the appropriate invocation, and execute it via a safe `execute_command`‑style function.

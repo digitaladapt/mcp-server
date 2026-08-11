@@ -3,4 +3,9 @@
 Exposes arbitrary terminal commands as reusable tools for a language model.
 """
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("mcp-server")
+except PackageNotFoundError:  # Not installed (e.g. running from source)
+    __version__ = "0.0.0-dev"

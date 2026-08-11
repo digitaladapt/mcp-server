@@ -108,8 +108,8 @@ class MCPClient:
     # -- high-level API -------------------------------------------------
 
     def health(self) -> dict[str, Any]:
-        """Hit ``GET /health``."""
-        return self._get("/health")
+        """Hit ``GET /api/health``."""
+        return self._get("/api/health")
 
     def list_commands(self) -> list[dict[str, Any]]:
         """Return every registered command schema."""

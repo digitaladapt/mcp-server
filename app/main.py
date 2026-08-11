@@ -1,7 +1,8 @@
 """FastAPI entry point for the MCP Server.
 
 Exposes:
-  GET  /health            – liveness probe (no auth required)
+  GET  /api/health        – liveness probe (no auth required)
+  GET  /api/about          – app name & version (no auth required)
   GET  /commands          – list all registered commands (auth if configured)
   GET  /commands/{name}   – retrieve a single command's schema
   GET  /validate          – validate all registry files
@@ -16,6 +17,7 @@ import logging
 
 from fastapi import Depends, FastAPI, HTTPException
 
+from . import __version__
 from .auth import verify_api_key
 from .caldav_routes import router as caldav_router
 from .gitea_routes import router as gitea_router
@@ -34,7 +36,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="MCP Server",
     description="Modular Command Provider – exposes CLI commands as model tools.",
-    version="0.6.0",
+    version=__version__,
 )
 
 # Register the CalDAV calendar router (endpoints return 503 if unconfigured).
@@ -48,10 +50,16 @@ app.include_router(gitea_router)
 app.include_router(registry_router)
 
 
-@app.get("/health")
+@app.get("/api/health")
 async def health() -> dict:
     """Liveness probe.  Always accessible — no API key required."""
-    return {"status": "ok"}
+    return {"status": "healthy"}
+
+
+@app.get("/api/about")
+async def about() -> dict:
+    """Return app name and version.  No API key required."""
+    return {"name": "mcp-server", "version": app.version}
 
 
 @app.get("/commands", response_model=list[CommandSchema])
