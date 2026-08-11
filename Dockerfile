@@ -57,6 +57,10 @@ COPY registry/ ./registry/
 # config.sh is NOT copied — it's a secret; mount it or use env vars.
 COPY scripts/ ./scripts/
 
+# Install the package itself so importlib.metadata can resolve __version__.
+COPY pyproject.toml .
+RUN pip install --no-cache-dir --no-deps .
+
 # Switch to the non-root user.
 USER mcp
 
