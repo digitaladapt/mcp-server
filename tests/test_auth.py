@@ -27,7 +27,10 @@ _AUTH_DEPENDENT_MODULES = (
     "app.main",
     "app.caldav_routes",
     "app.gitea_routes",
+    "app.ics_routes",
+    "app.unified_routes",
     "app.registry_routes",
+    "app.provider_adapters",
     "app.auth",
 )
 
@@ -54,7 +57,14 @@ def _reload_auth_with_key(key: str | None) -> object:
     # Fresh imports (not importlib.reload) so every module re-executes its
     # import statements against the new app.auth object.
     import app.auth  # noqa: WPS433  (intentional re-import)
+
+    # Reimport all route modules so they pick up the new verify_api_key
+    import app.caldav_routes  # noqa: WPS433
+    import app.gitea_routes  # noqa: WPS433
+    import app.ics_routes  # noqa: WPS433
     import app.main  # noqa: WPS433
+    import app.registry_routes  # noqa: WPS433
+    import app.unified_routes  # noqa: WPS433
     return app.auth
 
 
@@ -76,7 +86,8 @@ def _restore_env() -> Generator[None, None, None]:
 def no_auth_client() -> Generator[TestClient, None, None]:
     """A TestClient with authentication disabled (no MCP_API_KEY)."""
     _reload_auth_with_key(None)
-    from app.main import app
+    from app.main import create_app
+    app = create_app()
     with TestClient(app) as client:
         yield client
 
@@ -85,7 +96,8 @@ def no_auth_client() -> Generator[TestClient, None, None]:
 def auth_client() -> Generator[TestClient, None, None]:
     """A TestClient with MCP_API_KEY set to 'test-secret-key'."""
     _reload_auth_with_key("test-secret-key")
-    from app.main import app
+    from app.main import create_app
+    app = create_app()
     with TestClient(app) as client:
         yield client
 

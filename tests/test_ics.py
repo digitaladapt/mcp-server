@@ -313,35 +313,23 @@ class TestICSServiceListEvents:
 # --------------------------------------------------------------------------- #
 
 class TestICSRoutesUnconfigured:
-    """Endpoints return 503 when ICS is not configured."""
+    """Endpoints return 404 when ICS is not configured (routes don't exist)."""
 
-    def test_calendars_503(self, app_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-        from app.ics_routes import _reset_service
-        monkeypatch.delenv("ICS_CALENDAR_URL", raising=False)
-        _reset_service()
-        resp = app_client.get("/ics/calendars")
-        assert resp.status_code == 503
+    def test_calendars_404(self, app_client_no_caldav: TestClient) -> None:
+        resp = app_client_no_caldav.get("/ics/calendars")
+        assert resp.status_code == 404
 
-    def test_events_503(self, app_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-        from app.ics_routes import _reset_service
-        monkeypatch.delenv("ICS_CALENDAR_URL", raising=False)
-        _reset_service()
-        resp = app_client.get("/ics/events")
-        assert resp.status_code == 503
+    def test_events_404(self, app_client_no_caldav: TestClient) -> None:
+        resp = app_client_no_caldav.get("/ics/events")
+        assert resp.status_code == 404
 
-    def test_refresh_503(self, app_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-        from app.ics_routes import _reset_service
-        monkeypatch.delenv("ICS_CALENDAR_URL", raising=False)
-        _reset_service()
-        resp = app_client.post("/ics/refresh")
-        assert resp.status_code == 503
+    def test_refresh_404(self, app_client_no_caldav: TestClient) -> None:
+        resp = app_client_no_caldav.post("/ics/refresh")
+        assert resp.status_code == 404
 
-    def test_status_503(self, app_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-        from app.ics_routes import _reset_service
-        monkeypatch.delenv("ICS_CALENDAR_URL", raising=False)
-        _reset_service()
-        resp = app_client.get("/ics/status")
-        assert resp.status_code == 503
+    def test_status_404(self, app_client_no_caldav: TestClient) -> None:
+        resp = app_client_no_caldav.get("/ics/status")
+        assert resp.status_code == 404
 
 
 class TestICSRoutesConfigured:
@@ -357,8 +345,16 @@ class TestICSRoutesConfigured:
         yield
         _reset_service()
 
-    def test_calendars_returns_info(self, app_client: TestClient) -> None:
-        resp = app_client.get("/ics/calendars")
+    @pytest.fixture
+    def client(self, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+        """Build app with ICS configured."""
+        from app.main import create_app
+        app = create_app()
+        with TestClient(app) as c:
+            yield c
+
+    def test_calendars_returns_info(self, client: TestClient) -> None:
+        resp = client.get("/ics/calendars")
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
@@ -368,8 +364,8 @@ class TestICSRoutesConfigured:
         assert data[0]["editable"] is False
         assert data[0]["events_cached"] == 0  # not refreshed yet
 
-    def test_status_returns_info(self, app_client: TestClient) -> None:
-        resp = app_client.get("/ics/status")
+    def test_status_returns_info(self, client: TestClient) -> None:
+        resp = client.get("/ics/status")
         assert resp.status_code == 200
         data = resp.json()
         assert data["name"] == "Work"
@@ -377,13 +373,13 @@ class TestICSRoutesConfigured:
         assert data["events_cached"] == 0
         assert data["last_refreshed"] is None
 
-    def test_refresh_success(self, app_client: TestClient) -> None:
+    def test_refresh_success(self, client: TestClient) -> None:
         # Mock the _fetch method on the service instance
         from app.ics_routes import _get_service
         svc = _get_service()
 
         with patch.object(svc, "_fetch", new_callable=AsyncMock, return_value=SAMPLE_ICS):
-            resp = app_client.post("/ics/refresh")
+            resp = client.post("/ics/refresh")
 
         assert resp.status_code == 200
         data = resp.json()
@@ -391,33 +387,33 @@ class TestICSRoutesConfigured:
         assert data["events_cached"] == 3
         assert data["error"] is None
 
-    def test_refresh_failure(self, app_client: TestClient) -> None:
+    def test_refresh_failure(self, client: TestClient) -> None:
         from app.ics_routes import _get_service
         svc = _get_service()
 
         with patch.object(svc, "_fetch", new_callable=AsyncMock, side_effect=ConnectionError("down")):
-            resp = app_client.post("/ics/refresh")
+            resp = client.post("/ics/refresh")
 
         assert resp.status_code == 200  # ICSRefreshResult returned, not 502
         data = resp.json()
         assert data["success"] is False
         assert "down" in data["error"]
 
-    def test_events_empty_before_refresh(self, app_client: TestClient) -> None:
-        resp = app_client.get("/ics/events")
+    def test_events_empty_before_refresh(self, client: TestClient) -> None:
+        resp = client.get("/ics/events")
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 0
         assert data["events"] == []
 
-    def test_events_after_refresh(self, app_client: TestClient) -> None:
+    def test_events_after_refresh(self, client: TestClient) -> None:
         from app.ics_routes import _get_service
         svc = _get_service()
 
         with patch.object(svc, "_fetch", new_callable=AsyncMock, return_value=SAMPLE_ICS):
-            app_client.post("/ics/refresh")
+            client.post("/ics/refresh")
 
-        resp = app_client.get("/ics/events")
+        resp = client.get("/ics/events")
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 3
@@ -425,27 +421,27 @@ class TestICSRoutesConfigured:
         assert "Team Standup" in summaries
         assert "All Day Workshop" in summaries
 
-    def test_events_with_date_filter(self, app_client: TestClient) -> None:
+    def test_events_with_date_filter(self, client: TestClient) -> None:
         from app.ics_routes import _get_service
         svc = _get_service()
 
         with patch.object(svc, "_fetch", new_callable=AsyncMock, return_value=SAMPLE_ICS):
-            app_client.post("/ics/refresh")
+            client.post("/ics/refresh")
 
-        resp = app_client.get("/ics/events", params={"start": "2026-01-15", "end": "2026-01-15"})
+        resp = client.get("/ics/events", params={"start": "2026-01-15", "end": "2026-01-15"})
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 1
         assert data["events"][0]["summary"] == "Team Standup"
 
-    def test_get_event_by_uid(self, app_client: TestClient) -> None:
+    def test_get_event_by_uid(self, client: TestClient) -> None:
         from app.ics_routes import _get_service
         svc = _get_service()
 
         with patch.object(svc, "_fetch", new_callable=AsyncMock, return_value=SAMPLE_ICS):
-            app_client.post("/ics/refresh")
+            client.post("/ics/refresh")
 
-        resp = app_client.get("/ics/events/event-2@test")
+        resp = client.get("/ics/events/event-2@test")
         assert resp.status_code == 200
         data = resp.json()
         assert data["uid"] == "event-2@test"
@@ -453,18 +449,18 @@ class TestICSRoutesConfigured:
         assert data["editable"] is False
         assert data["calendar_name"] == "Work"
 
-    def test_get_event_not_found(self, app_client: TestClient) -> None:
+    def test_get_event_not_found(self, client: TestClient) -> None:
         from app.ics_routes import _get_service
         svc = _get_service()
 
         with patch.object(svc, "_fetch", new_callable=AsyncMock, return_value=SAMPLE_ICS):
-            app_client.post("/ics/refresh")
+            client.post("/ics/refresh")
 
-        resp = app_client.get("/ics/events/nonexistent")
+        resp = client.get("/ics/events/nonexistent")
         assert resp.status_code == 404
 
-    def test_invalid_date_returns_400(self, app_client: TestClient) -> None:
-        resp = app_client.get("/ics/events", params={"start": "not-a-date"})
+    def test_invalid_date_returns_400(self, client: TestClient) -> None:
+        resp = client.get("/ics/events", params={"start": "not-a-date"})
         assert resp.status_code == 400
 
 
@@ -475,7 +471,7 @@ class TestICSRoutesConfigured:
 class TestJobsEndpoint:
     """Tests for the /jobs status endpoint."""
 
-    def test_jobs_returns_200(self, app_client: TestClient) -> None:
-        resp = app_client.get("/jobs")
+    def test_jobs_returns_200(self, app_client_no_caldav: TestClient) -> None:
+        resp = app_client_no_caldav.get("/jobs")
         assert resp.status_code == 200
         assert isinstance(resp.json(), list)

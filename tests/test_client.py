@@ -13,7 +13,6 @@ import pytest
 from starlette.testclient import TestClient
 
 from app.client import MCPClient, MCPError
-from app.main import app
 
 # --------------------------------------------------------------------------- #
 # Helpers / fixtures
@@ -21,6 +20,8 @@ from app.main import app
 
 def _make_test_client() -> TestClient:
     """Build a Starlette ``TestClient`` bound to the real FastAPI app."""
+    from app.main import create_app
+    app = create_app()
     return TestClient(app, base_url="http://test")
 
 
