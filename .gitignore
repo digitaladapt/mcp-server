@@ -10,8 +10,12 @@ build/
 
 # Virtual environments
 .venv/
+.venv-dev/
 venv/
 env/
+
+# Dev server artifacts
+var/
 
 # IDE / editor
 .vscode/
