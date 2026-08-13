@@ -851,167 +851,190 @@ def mock_gitea_service(gitea_env: None) -> Any:
     gitea_routes._reset_service()
 
 
+@pytest.fixture
+def gitea_client(gitea_env: None) -> TestClient:
+    """A TestClient with Gitea configured (routes mounted)."""
+    from app.main import create_app
+    app = create_app()
+    with TestClient(app) as c:
+        yield c
+
+
 class TestGiteaRoutes503:
-    """Test that routes return 503 when Gitea is not configured."""
+    """Test that routes return 404 when Gitea is not configured.
 
-    def test_issues_503_when_disabled(self, gitea_disabled: None, app_client: TestClient) -> None:
-        resp = app_client.get("/issues")
-        assert resp.status_code == 503
+    In the new modular design, unconfigured endpoints don't exist at all
+    — they return 404, not 503.  The LLM never sees broken choices.
+    """
 
-    def test_prs_503_when_disabled(self, gitea_disabled: None, app_client: TestClient) -> None:
-        resp = app_client.get("/prs")
-        assert resp.status_code == 503
+    def test_issues_404_when_disabled(
+        self, gitea_disabled: None, app_client_no_caldav: TestClient,
+    ) -> None:
+        resp = app_client_no_caldav.get("/issues")
+        assert resp.status_code == 404
 
-    def test_branches_503_when_disabled(self, gitea_disabled: None, app_client: TestClient) -> None:
-        resp = app_client.get("/branches")
-        assert resp.status_code == 503
+    def test_prs_404_when_disabled(
+        self, gitea_disabled: None, app_client_no_caldav: TestClient,
+    ) -> None:
+        resp = app_client_no_caldav.get("/prs")
+        assert resp.status_code == 404
 
-    def test_releases_503_when_disabled(self, gitea_disabled: None, app_client: TestClient) -> None:
-        resp = app_client.get("/releases")
-        assert resp.status_code == 503
+    def test_branches_404_when_disabled(
+        self, gitea_disabled: None, app_client_no_caldav: TestClient,
+    ) -> None:
+        resp = app_client_no_caldav.get("/branches")
+        assert resp.status_code == 404
 
-    def test_actions_503_when_disabled(self, gitea_disabled: None, app_client: TestClient) -> None:
-        resp = app_client.get("/actions")
-        assert resp.status_code == 503
+    def test_releases_404_when_disabled(
+        self, gitea_disabled: None, app_client_no_caldav: TestClient,
+    ) -> None:
+        resp = app_client_no_caldav.get("/releases")
+        assert resp.status_code == 404
+
+    def test_actions_404_when_disabled(
+        self, gitea_disabled: None, app_client_no_caldav: TestClient,
+    ) -> None:
+        resp = app_client_no_caldav.get("/actions")
+        assert resp.status_code == 404
 
 
 class TestGiteaRoutesIssues:
     """Test issue endpoints via the API."""
 
-    def test_list_issues(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_issues(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/issues", [SAMPLE_ISSUE])
-        resp = app_client.get("/issues")
+        resp = gitea_client.get("/issues")
         assert resp.status_code == 200
         data = resp.json()
         assert data["total"] == 1
         assert data["issues"][0]["number"] == 42
 
-    def test_get_issue(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_get_issue(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/issues/42", SAMPLE_ISSUE)
-        resp = app_client.get("/issues/42")
+        resp = gitea_client.get("/issues/42")
         assert resp.status_code == 200
         assert resp.json()["number"] == 42
 
-    def test_get_issue_404(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_get_issue_404(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/issues/999", None, status_code=404)
-        resp = app_client.get("/issues/999")
+        resp = gitea_client.get("/issues/999")
         assert resp.status_code == 404
 
-    def test_create_issue(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_create_issue(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("POST", "/repos/lyra/mcp_server/issues", SAMPLE_ISSUE, status_code=201)
-        resp = app_client.post("/issues", json={"title": "New bug", "body": "desc"})
+        resp = gitea_client.post("/issues", json={"title": "New bug", "body": "desc"})
         assert resp.status_code == 201
         assert resp.json()["number"] == 42
 
-    def test_create_issue_validation_error(self, mock_gitea_service: Any, app_client: TestClient) -> None:
-        resp = app_client.post("/issues", json={"body": "no title"})
+    def test_create_issue_validation_error(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
+        resp = gitea_client.post("/issues", json={"body": "no title"})
         assert resp.status_code == 422
 
-    def test_update_issue(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_update_issue(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         closed = {**SAMPLE_ISSUE, "state": "closed"}
         transport.set("PATCH", "/repos/lyra/mcp_server/issues/42", closed)
-        resp = app_client.patch("/issues/42", json={"state": "closed"})
+        resp = gitea_client.patch("/issues/42", json={"state": "closed"})
         assert resp.status_code == 200
 
-    def test_list_issue_comments(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_issue_comments(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/issues/42/comments", [SAMPLE_COMMENT])
-        resp = app_client.get("/issues/42/comments")
+        resp = gitea_client.get("/issues/42/comments")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_create_issue_comment(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_create_issue_comment(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("POST", "/repos/lyra/mcp_server/issues/42/comments", SAMPLE_COMMENT, status_code=201)
-        resp = app_client.post("/issues/42/comments", json={"body": "comment"})
+        resp = gitea_client.post("/issues/42/comments", json={"body": "comment"})
         assert resp.status_code == 201
 
 
 class TestGiteaRoutesBranches:
     """Test branch endpoints via the API."""
 
-    def test_list_branches(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_branches(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/branches", [SAMPLE_BRANCH])
-        resp = app_client.get("/branches")
+        resp = gitea_client.get("/branches")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_create_branch(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_create_branch(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         new = {**SAMPLE_BRANCH, "name": "feature/x"}
         transport.set("POST", "/repos/lyra/mcp_server/branches", new, status_code=201)
-        resp = app_client.post("/branches", json={"name": "feature/x", "from_ref": "main"})
+        resp = gitea_client.post("/branches", json={"name": "feature/x", "from_ref": "main"})
         assert resp.status_code == 201
 
-    def test_delete_branch(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_delete_branch(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("DELETE", "/repos/lyra/mcp_server/branches/feature/x", None, status_code=204)
         # Pass owner/repo explicitly so no query string is appended
-        resp = app_client.delete("/branches/feature/x", params={"owner": "lyra", "repo": "mcp_server"})
+        resp = gitea_client.delete("/branches/feature/x", params={"owner": "lyra", "repo": "mcp_server"})
         assert resp.status_code == 200
         assert resp.json()["deleted"] is True
 
-    def test_delete_branch_404(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_delete_branch_404(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("DELETE", "/repos/lyra/mcp_server/branches/nope", None, status_code=404)
-        resp = app_client.delete("/branches/nope")
+        resp = gitea_client.delete("/branches/nope")
         assert resp.status_code == 404
 
 
 class TestGiteaRoutesPRs:
     """Test PR endpoints via the API."""
 
-    def test_list_prs(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_prs(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/pulls", [SAMPLE_PR])
-        resp = app_client.get("/prs")
+        resp = gitea_client.get("/prs")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_get_pr(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_get_pr(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/pulls/7", SAMPLE_PR)
-        resp = app_client.get("/prs/7")
+        resp = gitea_client.get("/prs/7")
         assert resp.status_code == 200
         assert resp.json()["number"] == 7
 
-    def test_get_pr_404(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_get_pr_404(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/pulls/999", None, status_code=404)
-        resp = app_client.get("/prs/999")
+        resp = gitea_client.get("/prs/999")
         assert resp.status_code == 404
 
-    def test_create_pr(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_create_pr(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("POST", "/repos/lyra/mcp_server/pulls", SAMPLE_PR, status_code=201)
-        resp = app_client.post("/prs", json={"title": "Test", "head": "feature/x", "base": "main"})
+        resp = gitea_client.post("/prs", json={"title": "Test", "head": "feature/x", "base": "main"})
         assert resp.status_code == 201
 
-    def test_merge_pr(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_merge_pr(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("POST", "/repos/lyra/mcp_server/pulls/7/merge", None, status_code=200)
         transport.set("GET", "/repos/lyra/mcp_server/pulls/7", SAMPLE_MERGED_PR)
-        resp = app_client.post("/prs/7/merge", json={"do": "squash"})
+        resp = gitea_client.post("/prs/7/merge", json={"do": "squash"})
         assert resp.status_code == 200
         assert resp.json()["merged"] is True
         assert resp.json()["merge_commit_sha"] == "abc123def456"
 
-    def test_merge_pr_conflict(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_merge_pr_conflict(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("POST", "/repos/lyra/mcp_server/pulls/7/merge", {"message": "conflict"}, status_code=409)
-        resp = app_client.post("/prs/7/merge", json={"do": "merge"})
+        resp = gitea_client.post("/prs/7/merge", json={"do": "merge"})
         assert resp.status_code == 409
 
-    def test_list_pr_reviews(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_pr_reviews(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/pulls/7/reviews", [SAMPLE_REVIEW])
-        resp = app_client.get("/prs/7/reviews")
+        resp = gitea_client.get("/prs/7/reviews")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
@@ -1019,17 +1042,17 @@ class TestGiteaRoutesPRs:
 class TestGiteaRoutesActions:
     """Test Actions/CI endpoints."""
 
-    def test_list_actions(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_actions(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/actions/runs", [SAMPLE_ACTION_RUN])
-        resp = app_client.get("/actions")
+        resp = gitea_client.get("/actions")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_get_commit_statuses(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_get_commit_statuses(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/commits/abc123/statuses", [SAMPLE_COMMIT_STATUS])
-        resp = app_client.get("/commits/abc123/statuses")
+        resp = gitea_client.get("/commits/abc123/statuses")
         assert resp.status_code == 200
         assert resp.json()["statuses"][0]["state"] == "success"
 
@@ -1037,29 +1060,29 @@ class TestGiteaRoutesActions:
 class TestGiteaRoutesReleases:
     """Test release endpoints."""
 
-    def test_list_releases(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_releases(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/releases", [SAMPLE_RELEASE])
-        resp = app_client.get("/releases")
+        resp = gitea_client.get("/releases")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_get_release(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_get_release(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/releases/1", SAMPLE_RELEASE)
-        resp = app_client.get("/releases/1")
+        resp = gitea_client.get("/releases/1")
         assert resp.status_code == 200
 
-    def test_create_release(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_create_release(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("POST", "/repos/lyra/mcp_server/releases", SAMPLE_RELEASE, status_code=201)
-        resp = app_client.post("/releases", json={"tag_name": "v0.5.0"})
+        resp = gitea_client.post("/releases", json={"tag_name": "v0.5.0"})
         assert resp.status_code == 201
 
-    def test_delete_release(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_delete_release(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("DELETE", "/repos/lyra/mcp_server/releases/1", None, status_code=204)
-        resp = app_client.delete("/releases/1")
+        resp = gitea_client.delete("/releases/1")
         assert resp.status_code == 200
         assert resp.json()["deleted"] is True
 
@@ -1067,31 +1090,31 @@ class TestGiteaRoutesReleases:
 class TestGiteaRoutesRepo:
     """Test repo and commit endpoints."""
 
-    def test_get_repo(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_get_repo(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server", SAMPLE_REPO)
-        resp = app_client.get("/repos/lyra/mcp_server")
+        resp = gitea_client.get("/repos/lyra/mcp_server")
         assert resp.status_code == 200
         assert resp.json()["full_name"] == "lyra/mcp_server"
 
-    def test_list_repos(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_repos(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/user/repos", [SAMPLE_REPO])
-        resp = app_client.get("/user/repos")
+        resp = gitea_client.get("/user/repos")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_list_commits(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_commits(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/commits", [SAMPLE_COMMIT])
-        resp = app_client.get("/repos/lyra/mcp_server/commits")
+        resp = gitea_client.get("/repos/lyra/mcp_server/commits")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
 
-    def test_compare(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_compare(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/compare/main...feature/x", SAMPLE_COMPARE)
-        resp = app_client.get("/repos/lyra/mcp_server/compare", params={"base": "main", "head": "feature/x"})
+        resp = gitea_client.get("/repos/lyra/mcp_server/compare", params={"base": "main", "head": "feature/x"})
         assert resp.status_code == 200
         assert resp.json()["commits_ahead"] == 3
 
@@ -1107,80 +1130,80 @@ class TestMCPClientGitea:
     httpx.Client with a Starlette TestClient bound to the real FastAPI app.
     """
 
-    def _make_client(self, app_client: TestClient) -> Any:
+    def _make_client(self, gitea_client: TestClient) -> Any:
         from app.client import MCPClient
         mc = MCPClient("http://test")
-        mc._client = app_client
+        mc._client = gitea_client
         return mc
 
-    def test_list_issues(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_issues(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/issues", [SAMPLE_ISSUE])
-        mc = self._make_client(app_client)
+        mc = self._make_client(gitea_client)
         result = mc.list_issues()
         assert result["total"] == 1
 
-    def test_create_issue(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_create_issue(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("POST", "/repos/lyra/mcp_server/issues", SAMPLE_ISSUE, status_code=201)
-        mc = self._make_client(app_client)
+        mc = self._make_client(gitea_client)
         result = mc.create_issue(title="Test", body="desc")
         assert result["number"] == 42
 
-    def test_list_prs(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_prs(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/pulls", [SAMPLE_PR])
-        mc = self._make_client(app_client)
+        mc = self._make_client(gitea_client)
         result = mc.list_prs()
         assert result["total"] == 1
 
-    def test_create_pr(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_create_pr(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("POST", "/repos/lyra/mcp_server/pulls", SAMPLE_PR, status_code=201)
-        mc = self._make_client(app_client)
+        mc = self._make_client(gitea_client)
         result = mc.create_pr(title="Test", head="feature/x", base="main")
         assert result["number"] == 7
 
-    def test_merge_pr(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_merge_pr(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("POST", "/repos/lyra/mcp_server/pulls/7/merge", None, status_code=200)
         transport.set("GET", "/repos/lyra/mcp_server/pulls/7", SAMPLE_MERGED_PR)
-        mc = self._make_client(app_client)
+        mc = self._make_client(gitea_client)
         result = mc.merge_pr(7, method="squash")
         assert result["merged"] is True
 
-    def test_list_branches(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_branches(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/branches", [SAMPLE_BRANCH])
-        mc = self._make_client(app_client)
+        mc = self._make_client(gitea_client)
         result = mc.list_branches()
         assert result["total"] == 1
 
-    def test_create_branch(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_create_branch(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         new = {**SAMPLE_BRANCH, "name": "feature/y"}
         transport.set("POST", "/repos/lyra/mcp_server/branches", new, status_code=201)
-        mc = self._make_client(app_client)
+        mc = self._make_client(gitea_client)
         result = mc.create_branch("feature/y", from_ref="main")
         assert result["name"] == "feature/y"
 
-    def test_list_releases(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_releases(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/releases", [SAMPLE_RELEASE])
-        mc = self._make_client(app_client)
+        mc = self._make_client(gitea_client)
         result = mc.list_releases()
         assert result["total"] == 1
 
-    def test_create_release(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_create_release(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("POST", "/repos/lyra/mcp_server/releases", SAMPLE_RELEASE, status_code=201)
-        mc = self._make_client(app_client)
+        mc = self._make_client(gitea_client)
         result = mc.create_release("v0.5.0", name="v0.5.0")
         assert result["tag_name"] == "v0.5.0"
 
-    def test_list_actions(self, mock_gitea_service: Any, app_client: TestClient) -> None:
+    def test_list_actions(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/actions/runs", [SAMPLE_ACTION_RUN])
-        mc = self._make_client(app_client)
+        mc = self._make_client(gitea_client)
         result = mc.list_actions()
         assert result["total"] == 1

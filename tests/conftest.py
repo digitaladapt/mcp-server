@@ -8,9 +8,9 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
 # Registry helpers
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
 
 def write_registry_file(path: Path, name: str, **fields: str) -> None:
     """Write a minimal valid YAML registry file to *path*."""
@@ -88,13 +88,43 @@ def registry_with_bad_files(tmp_registry: Path) -> Path:
     return tmp_registry
 
 
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
 # App / client fixtures
-# ---------------------------------------------------------------------------
+# --------------------------------------------------------------------------- #
 
 @pytest.fixture
 def app_client() -> Generator[TestClient, None, None]:
-    """A FastAPI TestClient using the real app + real registry."""
-    from app.main import app
+    """A FastAPI TestClient using the real app + real registry.
+
+    Rebuilds the app from scratch to pick up current env vars.
+    This is important for the conditional endpoint registration —
+    the app is built at creation time based on what's configured.
+    """
+    from app.main import create_app
+    app = create_app()
     with TestClient(app) as client:
         yield client
+
+
+@pytest.fixture
+def app_client_no_caldav(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+    """A TestClient with CalDAV unconfigured.
+
+    Cleans up all calendar-related env vars so the app starts with
+    only registry commands (and optionally Gitea if configured).
+    """
+    monkeypatch.delenv("CALDAV_URL", raising=False)
+    monkeypatch.delenv("ICS_CALENDAR_URL", raising=False)
+
+    from app.caldav_routes import _reset_service as _reset_caldav
+    from app.ics_routes import _reset_service as _reset_ics
+    _reset_caldav()
+    _reset_ics()
+
+    from app.main import create_app
+    app = create_app()
+    with TestClient(app) as client:
+        yield client
+
+    _reset_caldav()
+    _reset_ics()

@@ -186,43 +186,45 @@ class TestModelSerialization:
 # --------------------------------------------------------------------------- #
 
 class TestCalDAVUnconfigured:
-    """When CALDAV_URL is not set, calendar endpoints return 503."""
+    """When CALDAV_URL is not set, calendar endpoints don't exist (404)."""
 
     @pytest.fixture
     def client(self, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         """A TestClient with CalDAV unconfigured."""
         monkeypatch.delenv("CALDAV_URL", raising=False)
+        monkeypatch.delenv("ICS_CALENDAR_URL", raising=False)
         # Reset the service singleton
         from app.caldav_routes import _reset_service
         _reset_service()
 
-        from app.main import app
+        from app.main import create_app
+        app = create_app()
         with TestClient(app) as c:
             yield c
 
-    def test_list_calendars_503(self, client: TestClient) -> None:
+    def test_list_calendars_404(self, client: TestClient) -> None:
         resp = client.get("/calendars")
-        assert resp.status_code == 503
+        assert resp.status_code == 404
 
-    def test_list_events_503(self, client: TestClient) -> None:
+    def test_list_events_404(self, client: TestClient) -> None:
         resp = client.get("/events")
-        assert resp.status_code == 503
+        assert resp.status_code == 404
 
-    def test_list_tasks_503(self, client: TestClient) -> None:
+    def test_list_tasks_404(self, client: TestClient) -> None:
         resp = client.get("/tasks")
-        assert resp.status_code == 503
+        assert resp.status_code == 404
 
-    def test_create_event_503(self, client: TestClient) -> None:
+    def test_create_event_404(self, client: TestClient) -> None:
         resp = client.post("/events", json={
             "summary": "Test",
             "start": "2026-01-15T10:00:00",
             "end": "2026-01-15T11:00:00",
         })
-        assert resp.status_code == 503
+        assert resp.status_code == 404
 
-    def test_create_task_503(self, client: TestClient) -> None:
+    def test_create_task_404(self, client: TestClient) -> None:
         resp = client.post("/tasks", json={"summary": "Test task"})
-        assert resp.status_code == 503
+        assert resp.status_code == 404
 
 
 # --------------------------------------------------------------------------- #
@@ -236,45 +238,62 @@ class TestCalDAVAuthIntegration:
     def auth_client(
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> TestClient:
-        """A TestClient with MCP_API_KEY set and CalDAV unconfigured."""
-        monkeypatch.setenv("MCP_API_KEY", "secret")
-        monkeypatch.delenv("CALDAV_URL", raising=False)
-
-        # Reload modules to pick up env
+        """A TestClient with MCP_API_KEY set and CalDAV configured."""
         import importlib
-        for mod in ["app.auth", "app.main", "app.caldav_routes"]:
-            if mod in importlib.sys.modules:
-                del importlib.sys.modules[mod]
 
+        monkeypatch.setenv("MCP_API_KEY", "secret")
+        monkeypatch.setenv("CALDAV_URL", "https://caldav.example.com")
+        monkeypatch.setenv("CALDAV_USERNAME", "user")
+        monkeypatch.setenv("CALDAV_PASSWORD", "pass")
+        monkeypatch.setenv("CALDAV_EDITABLE_CALENDAR", "Lyra")
+
+        # Reload auth and all route modules so they pick up the new key
+        for mod_name in [
+            "app.auth", "app.caldav_routes", "app.gitea_routes",
+            "app.ics_routes", "app.unified_routes", "app.registry_routes",
+            "app.provider_adapters", "app.main",
+        ]:
+            importlib.sys.modules.pop(mod_name, None)
+
+        import app.auth
+        import app.caldav_routes
+        import app.gitea_routes
+        import app.ics_routes
+        import app.main
+        import app.registry_routes
+        import app.unified_routes
         from app.caldav_routes import _reset_service
         _reset_service()
 
-        from app.main import app
+        app = app.main.create_app()
         with TestClient(app) as c:
             yield c
 
-        # Cleanup
+        # Cleanup: restore auth module to no-key state
         monkeypatch.delenv("MCP_API_KEY", raising=False)
-        for mod in ["app.auth", "app.main", "app.caldav_routes"]:
-            if mod in importlib.sys.modules:
-                del importlib.sys.modules[mod]
-        import importlib
-
+        for mod_name in [
+            "app.auth", "app.caldav_routes", "app.gitea_routes",
+            "app.ics_routes", "app.unified_routes", "app.registry_routes",
+            "app.provider_adapters", "app.main",
+        ]:
+            importlib.sys.modules.pop(mod_name, None)
         import app.auth
-        importlib.reload(app.auth)
         import app.caldav_routes
-        importlib.reload(app.caldav_routes)
+        import app.gitea_routes
+        import app.ics_routes
         import app.main
-        importlib.reload(app.main)
+        import app.registry_routes
+        import app.unified_routes
 
     def test_calendars_requires_auth(self, auth_client: TestClient) -> None:
         resp = auth_client.get("/calendars")
         assert resp.status_code == 401
 
-    def test_calendars_with_key_still_503(self, auth_client: TestClient) -> None:
-        """Even with auth, CalDAV is 503 if unconfigured."""
+    def test_calendars_with_key_works(self, auth_client: TestClient) -> None:
+        """With auth and CalDAV configured, /calendars is accessible (may 502 on connection error)."""
         resp = auth_client.get("/calendars", headers={"X-API-Key": "secret"})
-        assert resp.status_code == 503
+        # It won't be 401 — it will try to connect and fail with 502
+        assert resp.status_code != 401
 
 
 # --------------------------------------------------------------------------- #
@@ -454,7 +473,8 @@ class TestCalDAVEndpointsMocked:
         from app.caldav_routes import _reset_service
         _reset_service()
 
-        from app.main import app
+        from app.main import create_app
+        app = create_app()
         with TestClient(app) as c:
             yield c
 
@@ -810,7 +830,8 @@ class TestGetTaskEndpoint:
         from app.caldav_routes import _reset_service
         _reset_service()
 
-        from app.main import app
+        from app.main import create_app
+        app = create_app()
         with TestClient(app) as c:
             yield c
 
@@ -865,15 +886,17 @@ class TestGetTaskEndpoint:
         resp = mocked_client.get("/tasks/nonexistent")
         assert resp.status_code == 404
 
-    def test_get_task_503_unconfigured(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_get_task_404_unconfigured(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("CALDAV_URL", raising=False)
+        monkeypatch.delenv("ICS_CALENDAR_URL", raising=False)
         from app.caldav_routes import _reset_service
         _reset_service()
 
-        from app.main import app
+        from app.main import create_app
+        app = create_app()
         with TestClient(app) as c:
             resp = c.get("/tasks/some-uid")
-        assert resp.status_code == 503
+        assert resp.status_code == 404
 
 
 class TestCalendarCaching:
@@ -1355,7 +1378,8 @@ class TestDeleteTaskEndpoint:
         from app.caldav_routes import _reset_service
         _reset_service()
 
-        from app.main import app
+        from app.main import create_app
+        app = create_app()
         with TestClient(app) as c:
             yield c
 
