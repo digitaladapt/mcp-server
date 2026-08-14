@@ -7,7 +7,7 @@ CalDAV server.  The API endpoint tests verify routing, auth integration,
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from unittest.mock import MagicMock, patch
 from uuid import UUID
 
@@ -15,12 +15,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.caldav_models import (
+    AlarmSpec,
     CalDAVConfig,
     CalendarEvent,
     CalendarInfo,
     CalendarTask,
     CreateEventRequest,
     CreateTaskRequest,
+    UpdateEventRequest,
 )
 
 # --------------------------------------------------------------------------- #
@@ -1404,3 +1406,390 @@ class TestDeleteTaskEndpoint:
 
         resp = mocked_client.delete("/tasks/nonexistent")
         assert resp.status_code == 404
+
+
+# --------------------------------------------------------------------------- #
+# Alarm (VALARM) tests
+# --------------------------------------------------------------------------- #
+
+class TestAlarmSpecModel:
+    """Tests for the AlarmSpec Pydantic model."""
+
+    def test_defaults(self) -> None:
+        alarm = AlarmSpec()
+        assert alarm.trigger_minutes == 0
+        assert alarm.action == "DISPLAY"
+        assert alarm.description is None
+        assert alarm.related_to == "START"
+
+    def test_negative_trigger(self) -> None:
+        alarm = AlarmSpec(trigger_minutes=-15)
+        assert alarm.trigger_minutes == -15
+
+    def test_audio_action(self) -> None:
+        alarm = AlarmSpec(action="audio")
+        assert alarm.action == "AUDIO"
+
+    def test_invalid_action_rejected(self) -> None:
+        with pytest.raises(ValueError, match="action must be one of"):
+            AlarmSpec(action="EMAIL")
+
+    def test_related_to_end(self) -> None:
+        alarm = AlarmSpec(related_to="end")
+        assert alarm.related_to == "END"
+
+    def test_invalid_related_to_rejected(self) -> None:
+        with pytest.raises(ValueError, match="related_to must be one of"):
+            AlarmSpec(related_to="MIDDLE")
+
+
+class TestCreateEventAlarms:
+    """Tests for alarm support in create_event."""
+
+    @pytest.fixture
+    def mock_service(self) -> tuple:
+        """Return (service, mock_calendar) for testing create methods."""
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        service = CalDAVService(config)
+
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_cal.url = "https://caldav.example.com/lyra"
+        mock_cal.save_event = MagicMock()
+
+        service._calendars_cache = [mock_cal]
+
+        return service, mock_cal
+
+    def test_default_alarm_at_event_start(self, mock_service) -> None:
+        """By default, an event should get one DISPLAY alarm at start."""
+        service, mock_cal = mock_service
+        req = CreateEventRequest(
+            summary="Meeting",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+        )
+        result = service.create_event(req)
+
+        assert len(result.alarms) == 1
+        assert result.alarms[0].trigger_minutes == 0
+        assert result.alarms[0].action == "DISPLAY"
+        assert result.alarms[0].related_to == "START"
+
+        # Verify VALARM is in the saved iCal data
+        saved_data = mock_cal.save_event.call_args[0][0]
+        assert "BEGIN:VALARM" in saved_data
+        assert "END:VALARM" in saved_data
+        assert "TRIGGER" in saved_data
+
+    def test_no_alarm_when_disabled(self, mock_service) -> None:
+        """enable_alarms=False should suppress all alarms."""
+        service, mock_cal = mock_service
+        req = CreateEventRequest(
+            summary="Quiet Meeting",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+            enable_alarms=False,
+        )
+        result = service.create_event(req)
+
+        assert len(result.alarms) == 0
+
+        saved_data = mock_cal.save_event.call_args[0][0]
+        assert "VALARM" not in saved_data
+
+    def test_custom_alarms(self, mock_service) -> None:
+        """Multiple custom alarms should be attached."""
+        service, mock_cal = mock_service
+        req = CreateEventRequest(
+            summary="Important Meeting",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+            alarms=[
+                AlarmSpec(trigger_minutes=-15, description="Leave now!"),
+                AlarmSpec(trigger_minutes=0, action="AUDIO"),
+                AlarmSpec(trigger_minutes=-60, description="Prep time"),
+            ],
+        )
+        result = service.create_event(req)
+
+        assert len(result.alarms) == 3
+        assert result.alarms[0].trigger_minutes == -15
+        assert result.alarms[1].action == "AUDIO"
+        assert result.alarms[2].trigger_minutes == -60
+
+        saved_data = mock_cal.save_event.call_args[0][0]
+        # Should contain 3 VALARM blocks
+        assert saved_data.count("BEGIN:VALARM") == 3
+
+    def test_alarm_description_defaults_to_summary(self, mock_service) -> None:
+        """When no description is given, the alarm should use the event summary."""
+        service, mock_cal = mock_service
+        req = CreateEventRequest(
+            summary="Team Sync",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+            alarms=[AlarmSpec(trigger_minutes=-5)],
+        )
+        service.create_event(req)
+
+        saved_data = mock_cal.save_event.call_args[0][0]
+        assert "Team Sync" in saved_data
+
+    def test_alarm_related_to_end(self, mock_service) -> None:
+        """Alarms with related_to=END should have RELATED=END in the iCal."""
+        service, mock_cal = mock_service
+        req = CreateEventRequest(
+            summary="Deadline",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+            alarms=[AlarmSpec(trigger_minutes=0, related_to="END")],
+        )
+        service.create_event(req)
+
+        saved_data = mock_cal.save_event.call_args[0][0]
+        assert "RELATED=END" in saved_data
+
+
+class TestUpdateEventAlarms:
+    """Tests for alarm support in update_event."""
+
+    @pytest.fixture
+    def mock_service_with_event(self) -> tuple:
+        """Return (service, mock_cal, target_obj, ev_component) for update tests."""
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        service = CalDAVService(config)
+
+        # Build an existing event with an alarm
+        ical = ICalCalendar()
+        event = ICalEvent()
+        event.add("uid", "test-uid-123")
+        event.add("dtstamp", datetime(2026, 1, 1, tzinfo=UTC))
+        event.add("dtstart", datetime(2026, 1, 15, 10, 0, tzinfo=UTC))
+        event.add("dtend", datetime(2026, 1, 15, 11, 0, tzinfo=UTC))
+        event.add("summary", "Original Event")
+        ical.add_component(event)
+
+        existing_data = ical.to_ical().decode("utf-8")
+
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_cal.url = "https://caldav.example.com/lyra"
+
+        mock_target = MagicMock()
+        mock_target.data = existing_data
+        mock_target.save = MagicMock()
+        # Disable icalendar_component so _extract_component falls through
+        # to parsing raw .data (which we control)
+        mock_target.icalendar_component = None
+
+        # Patch _find_by_uid to return our mock target
+        service._calendars_cache = [mock_cal]
+        service._find_by_uid = MagicMock(return_value=mock_target)
+
+        return service, mock_cal, mock_target
+
+    def test_preserve_existing_alarms_on_update(self, mock_service_with_event) -> None:
+        """When alarms field is omitted, existing alarms should be preserved."""
+        service, _mock_cal, _mock_target = mock_service_with_event
+        req = UpdateEventRequest(summary="Updated Title")
+        result = service.update_event("test-uid-123", req)
+
+        # No alarms in the original event, so none after
+        assert result.alarms == []
+
+    def test_add_alarms_via_update(self, mock_service_with_event) -> None:
+        """Adding alarms via update should attach them."""
+        service, _mock_cal, mock_target = mock_service_with_event
+        req = UpdateEventRequest(
+            alarms=[AlarmSpec(trigger_minutes=-30, description="Get ready")],
+        )
+        result = service.update_event("test-uid-123", req)
+
+        assert len(result.alarms) == 1
+        assert result.alarms[0].trigger_minutes == -30
+
+        saved_data = mock_target.data
+        assert "BEGIN:VALARM" in saved_data
+
+    def test_remove_alarms_via_update(self, mock_service_with_event) -> None:
+        """enable_alarms=False should remove all alarms."""
+        service, _mock_cal, mock_target = mock_service_with_event
+
+        # First add an alarm
+        req_add = UpdateEventRequest(
+            alarms=[AlarmSpec(trigger_minutes=-10)],
+        )
+        service.update_event("test-uid-123", req_add)
+
+        # Now remove it
+        mock_target.data = mock_target.data  # keep the saved data
+        req_remove = UpdateEventRequest(enable_alarms=False)
+        result = service.update_event("test-uid-123", req_remove)
+
+        assert len(result.alarms) == 0
+        saved_data = mock_target.data
+        assert "VALARM" not in saved_data
+
+    def test_replace_alarms_via_update(self, mock_service_with_event) -> None:
+        """Providing alarms list should replace existing alarms."""
+        service, _mock_cal, _mock_target = mock_service_with_event
+
+        # First add two alarms
+        req1 = UpdateEventRequest(
+            alarms=[
+                AlarmSpec(trigger_minutes=-10),
+                AlarmSpec(trigger_minutes=-20),
+            ],
+        )
+        service.update_event("test-uid-123", req1)
+
+        # Now replace with one different alarm
+        req2 = UpdateEventRequest(
+            alarms=[AlarmSpec(trigger_minutes=-5, description="Final reminder")],
+        )
+        result = service.update_event("test-uid-123", req2)
+
+        assert len(result.alarms) == 1
+        assert result.alarms[0].trigger_minutes == -5
+
+
+class TestParseEventAlarms:
+    """Tests for parsing VALARM components from existing events."""
+
+    def test_parse_event_with_alarm(self) -> None:
+        from icalendar import Alarm as ICalAlarm
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        svc = CalDAVService(config)
+
+        ical = ICalCalendar()
+        event = ICalEvent()
+        event.add("uid", "evt-1")
+        event.add("dtstart", datetime(2026, 1, 15, 10, 0, tzinfo=UTC))
+        event.add("dtend", datetime(2026, 1, 15, 11, 0, tzinfo=UTC))
+        event.add("summary", "Event with Alarm")
+
+        alarm = ICalAlarm()
+        alarm.add("action", "DISPLAY")
+        alarm.add("trigger", timedelta(minutes=-15))
+        alarm.add("description", "Leave now")
+        event.add_component(alarm)
+
+        ical.add_component(event)
+
+        mock_obj = MagicMock()
+        mock_obj.icalendar_component = ical
+
+        result = svc._parse_event(mock_obj, "Lyra", True)
+        assert result is not None
+        assert len(result.alarms) == 1
+        assert result.alarms[0].trigger_minutes == -15
+        assert result.alarms[0].action == "DISPLAY"
+        assert result.alarms[0].description == "Leave now"
+        assert result.alarms[0].related_to == "START"
+
+    def test_parse_event_with_multiple_alarms(self) -> None:
+        from icalendar import Alarm as ICalAlarm
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        svc = CalDAVService(config)
+
+        ical = ICalCalendar()
+        event = ICalEvent()
+        event.add("uid", "evt-2")
+        event.add("dtstart", datetime(2026, 1, 15, 10, 0, tzinfo=UTC))
+        event.add("dtend", datetime(2026, 1, 15, 11, 0, tzinfo=UTC))
+        event.add("summary", "Multi Alarm Event")
+
+        alarm1 = ICalAlarm()
+        alarm1.add("action", "DISPLAY")
+        alarm1.add("trigger", timedelta(minutes=-30))
+        alarm1.add("description", "Prep")
+        event.add_component(alarm1)
+
+        alarm2 = ICalAlarm()
+        alarm2.add("action", "AUDIO")
+        alarm2.add("trigger", timedelta(0))
+        event.add_component(alarm2)
+
+        ical.add_component(event)
+
+        mock_obj = MagicMock()
+        mock_obj.icalendar_component = ical
+
+        result = svc._parse_event(mock_obj, "Lyra", True)
+        assert result is not None
+        assert len(result.alarms) == 2
+        assert result.alarms[0].trigger_minutes == -30
+        assert result.alarms[1].trigger_minutes == 0
+        assert result.alarms[1].action == "AUDIO"
+
+    def test_parse_event_no_alarms(self) -> None:
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        svc = CalDAVService(config)
+
+        ical = ICalCalendar()
+        event = ICalEvent()
+        event.add("uid", "evt-3")
+        event.add("dtstart", datetime(2026, 1, 15, 10, 0, tzinfo=UTC))
+        event.add("dtend", datetime(2026, 1, 15, 11, 0, tzinfo=UTC))
+        event.add("summary", "No Alarm Event")
+        ical.add_component(event)
+
+        mock_obj = MagicMock()
+        mock_obj.icalendar_component = ical
+
+        result = svc._parse_event(mock_obj, "Lyra", True)
+        assert result is not None
+        assert result.alarms == []

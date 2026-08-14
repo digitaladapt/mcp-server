@@ -25,11 +25,13 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import caldav
+from icalendar import Alarm as ICalAlarm
 from icalendar import Calendar as ICalCalendar
 from icalendar import Event as ICalEvent
 from icalendar import Todo as ICalTodo
 
 from .caldav_models import (
+    AlarmSpec,
     CalDAVConfig,
     CalendarEvent,
     CalendarInfo,
@@ -268,6 +270,7 @@ class CalDAVService:
             location=str(ev.get("location")) if ev.get("location") else None,
             calendar_name=calendar_name,
             editable=editable,
+            alarms=self._parse_alarms(ev),
         )
 
     @_with_connection_recovery
@@ -331,6 +334,10 @@ class CalDAVService:
         if req.location:
             event.add("location", req.location)
 
+        # Add alarms (defaults to one DISPLAY alarm at event start)
+        alarm_specs = self._resolve_alarm_specs(req)
+        self._attach_alarms(event, self._specs_to_ical(alarm_specs, req.summary))
+
         ical.add_component(event)
 
         try:
@@ -348,6 +355,7 @@ class CalDAVService:
             location=req.location,
             calendar_name=self._config.editable_calendar,
             editable=True,
+            alarms=alarm_specs,
         )
 
     @_with_connection_recovery
@@ -416,6 +424,21 @@ class CalDAVService:
                 ev_component.pop("dtend", None)
                 ev_component.add("dtend", self._to_date(end_val) if target_all_day else self._to_datetime(end_val))
 
+        # Handle alarms
+        # Determine the effective summary for alarm descriptions
+        effective_summary = (
+            req.summary if req.summary is not None
+            else str(ev_component.get("summary", ""))
+        )
+        alarm_specs = self._resolve_alarm_specs(req)
+        if alarm_specs is not None:
+            # Replace existing alarms with the new set
+            self._attach_alarms(
+                ev_component,
+                self._specs_to_ical(alarm_specs, effective_summary),
+            )
+        # If alarm_specs is None, preserve existing alarms
+
         # Update DTSTAMP and LAST-MODIFIED
         now = datetime.now(UTC)
         ev_component.pop("dtstamp", None)
@@ -445,6 +468,7 @@ class CalDAVService:
             location=req.location,
             calendar_name=self._config.editable_calendar,
             editable=True,
+            alarms=alarm_specs if alarm_specs is not None else [],
         )
 
     @_with_connection_recovery
@@ -748,6 +772,121 @@ class CalDAVService:
             if str(comp.get("uid", "")) == uid:
                 return comp
         return None
+
+    # ------------------------------------------------------------------ #
+    # Alarm helpers (VALARM)
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _resolve_alarm_specs(
+        req: CreateEventRequest | UpdateEventRequest,
+    ) -> list[AlarmSpec] | None:
+        """Resolve the list of AlarmSpec from a request, or None if
+        existing alarms should be preserved.
+
+        For CreateEventRequest:
+        - If ``enable_alarms`` is False → empty list (no alarms).
+        - If ``alarms`` is provided → use those.
+        - If ``alarms`` is None and ``enable_alarms`` is True → default:
+          one DISPLAY alarm at event start (0 minutes).
+
+        For UpdateEventRequest:
+        - If ``enable_alarms`` is False → empty list (remove all).
+        - If ``alarms`` is provided → use those (replaces existing).
+        - If ``alarms`` is None and ``enable_alarms`` is None → None
+          (caller preserves existing alarms).
+        """
+        alarms_field = getattr(req, "alarms", None)
+        enable_field = getattr(req, "enable_alarms", None)
+
+        if isinstance(req, CreateEventRequest):
+            if not req.enable_alarms:
+                return []
+            if alarms_field is None:
+                return [AlarmSpec(trigger_minutes=0)]
+            return list(alarms_field)
+
+        # UpdateEventRequest
+        if enable_field is False:
+            return []
+        if alarms_field is None:
+            return None  # preserve existing
+        return list(alarms_field)
+
+    @staticmethod
+    def _specs_to_ical(
+        specs: list[AlarmSpec],
+        summary: str,
+    ) -> list[ICalAlarm]:
+        """Convert AlarmSpec objects to icalendar Alarm components."""
+        result: list[ICalAlarm] = []
+        for spec in specs:
+            alarm = ICalAlarm()
+            alarm.add("action", spec.action)
+            alarm.add(
+                "trigger",
+                timedelta(minutes=spec.trigger_minutes),
+            )
+            alarm["trigger"].params["RELATED"] = spec.related_to
+            alarm.add("description", spec.description or summary)
+            result.append(alarm)
+        return result
+
+    @staticmethod
+    def _attach_alarms(
+        event_component: ICalEvent,
+        alarms: list[ICalAlarm],
+    ) -> None:
+        """Attach alarm components to a VEVENT, replacing any existing ones."""
+        # Remove existing VALARM subcomponents
+        event_component.subcomponents = [
+            sub for sub in event_component.subcomponents
+            if sub.name != "VALARM"
+        ]
+        for alarm in alarms:
+            event_component.add_component(alarm)
+
+    @staticmethod
+    def _parse_alarms(event_component: Any) -> list[AlarmSpec]:
+        """Extract AlarmSpec list from a VEVENT's VALARM subcomponents."""
+        result: list[AlarmSpec] = []
+        for sub in event_component.subcomponents:
+            if sub.name != "VALARM":
+                continue
+            action = str(sub.get("action", "DISPLAY"))
+            trigger = sub.get("trigger")
+            if trigger is None:
+                continue
+
+            # Unwrap icalendar property
+            trigger_val = trigger
+            if hasattr(trigger_val, "dt"):
+                trigger_val = trigger_val.dt
+            if hasattr(trigger_val, "params"):
+                related = trigger_val.params.get("RELATED", "START")
+            elif hasattr(trigger, "params"):
+                related = trigger.params.get("RELATED", "START")
+            else:
+                related = "START"
+
+            # trigger_val is a timedelta (relative trigger)
+            if isinstance(trigger_val, timedelta):
+                minutes = int(trigger_val.total_seconds() / 60)
+            else:
+                # Absolute trigger (datetime/date) — skip for now
+                # as AlarmSpec uses relative minutes only
+                continue
+
+            description = sub.get("description")
+            desc_str = str(description) if description else None
+
+            result.append(AlarmSpec(
+                trigger_minutes=minutes,
+                action=action,
+                description=desc_str,
+                related_to=related,
+            ))
+        return result
 
     # ------------------------------------------------------------------ #
     # Datetime helpers
