@@ -2,11 +2,66 @@
 
 These models cover events (VEVENT) and tasks (VTODO), supporting
 the unified calendar view where some calendars are read-only.
+
+Events support VALARM components (calendar alarms/reminders).  By
+default, newly created events get a single DISPLAY alarm at the
+start time unless ``enable_alarms`` is set to ``False``.
 """
 
 from __future__ import annotations
 
 from pydantic import BaseModel, field_validator
+
+# --------------------------------------------------------------------------- #
+# Alarm / Reminder support (VALARM)
+# --------------------------------------------------------------------------- #
+
+class AlarmSpec(BaseModel):
+    """Specification for a single calendar alarm (VALARM).
+
+    Alarms are attached to events and trigger reminders.  Multiple
+    alarms can be attached to a single event.
+
+    Parameters
+    ----------
+    trigger_minutes:
+        When the alarm fires, relative to ``related_to``.
+        Negative = before, 0 = at the time, positive = after.
+        e.g. ``-15`` means 15 minutes before the event start.
+        Defaults to ``0`` (at event start).
+    action:
+        The alarm action type.  ``DISPLAY`` shows a message on screen,
+        ``AUDIO`` plays a sound.  Defaults to ``DISPLAY``.
+    description:
+        Optional text shown with the alarm.  Defaults to the event
+        summary when not provided.
+    related_to:
+        Whether the trigger is relative to ``START`` or ``END`` of the
+        event.  Defaults to ``START``.
+    """
+
+    trigger_minutes: int = 0
+    action: str = "DISPLAY"
+    description: str | None = None
+    related_to: str = "START"
+
+    @field_validator("action")
+    @classmethod
+    def action_valid(cls, v: str) -> str:
+        allowed = {"DISPLAY", "AUDIO"}
+        v_upper = v.upper()
+        if v_upper not in allowed:
+            raise ValueError(f"action must be one of {allowed}")
+        return v_upper
+
+    @field_validator("related_to")
+    @classmethod
+    def related_to_valid(cls, v: str) -> str:
+        allowed = {"START", "END"}
+        v_upper = v.upper()
+        if v_upper not in allowed:
+            raise ValueError(f"related_to must be one of {allowed}")
+        return v_upper
 
 # --------------------------------------------------------------------------- #
 # Calendar metadata
@@ -37,10 +92,16 @@ class CalendarEvent(BaseModel):
     location: str | None = None
     calendar_name: str
     editable: bool
+    alarms: list[AlarmSpec] = []
 
 
 class CreateEventRequest(BaseModel):
-    """Payload for creating a new event on the editable calendar."""
+    """Payload for creating a new event on the editable calendar.
+
+    By default a single DISPLAY alarm at the event start time is
+    added automatically.  Provide ``alarms`` for custom alarms, or
+    set ``enable_alarms=False`` to suppress alarms entirely.
+    """
 
     summary: str
     description: str | None = None
@@ -48,6 +109,8 @@ class CreateEventRequest(BaseModel):
     end: str  # ISO 8601 datetime
     location: str | None = None
     all_day: bool = False
+    alarms: list[AlarmSpec] | None = None
+    enable_alarms: bool = True
 
     @field_validator("summary")
     @classmethod
@@ -61,6 +124,12 @@ class UpdateEventRequest(BaseModel):
     """Payload for updating an existing event.
 
     All fields are optional — only provided fields are updated.
+
+    Alarm handling:
+    - If ``alarms`` is provided (including an empty list), all existing
+      alarms are replaced with the new set.
+    - If ``alarms`` is ``None`` (omitted), existing alarms are preserved.
+    - If ``enable_alarms`` is ``False``, all alarms are removed.
     """
 
     summary: str | None = None
@@ -69,6 +138,8 @@ class UpdateEventRequest(BaseModel):
     end: str | None = None
     location: str | None = None
     all_day: bool | None = None
+    alarms: list[AlarmSpec] | None = None
+    enable_alarms: bool | None = None
 
 
 # --------------------------------------------------------------------------- #

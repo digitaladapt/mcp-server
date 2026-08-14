@@ -180,7 +180,11 @@ class MCPClient:
 
         Keyword arguments map to :class:`~app.caldav_models.CreateEventRequest`
         fields: ``summary`` (required), ``start``, ``end``, ``description``,
-        ``location``, ``all_day``.
+        ``location``, ``all_day``, ``alarms``, ``enable_alarms``.
+
+        By default a single DISPLAY alarm at event start is added.
+        Set ``enable_alarms=False`` to suppress, or provide ``alarms``
+        as a list of ``AlarmSpec`` dicts for custom alarms.
         """
         return self._post("/events", fields)
 
@@ -189,7 +193,7 @@ class MCPClient:
 
         Keyword arguments map to :class:`~app.caldav_models.UpdateEventRequest`
         fields: ``summary``, ``description``, ``start``, ``end``, ``location``,
-        ``all_day``.
+        ``all_day``, ``alarms``, ``enable_alarms``.
         """
         return self._put(f"/events/{uid}", fields)
 
