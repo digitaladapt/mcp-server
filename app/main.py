@@ -49,6 +49,7 @@ from .caldav_models import CalDAVConfig
 from .ics_models import ICSConfig
 from .jobs import job_scheduler
 from .models import CommandSchema, ValidationResult
+from .notify_service import init_notify_registry
 from .provider_adapters import CalDAVProvider, ICSProvider
 from .providers import provider_registry, reset_provider_registry
 from .registry import get_command_schema, list_commands, validate_registry
@@ -168,12 +169,15 @@ def create_app() -> FastAPI:
     # Registry commands are always available (from registry/*.yaml).
     registry_commands = list_commands()
 
+    # Discover notify providers (Discord, future Ntfy, etc.).
+    has_notify = init_notify_registry()
+
     # Fail-fast: if nothing is configured, refuse to start.
-    if not has_calendar and not has_gitea and not registry_commands:
+    if not has_calendar and not has_gitea and not registry_commands and not has_notify:
         raise RuntimeError(
             "No features configured.  Set at least one of: "
-            "CALDAV_URL, ICS_CALENDAR_URL, GITEA_URL, or ensure "
-            "registry command YAML files are present."
+            "CALDAV_URL, ICS_CALENDAR_URL, GITEA_URL, DISCORD_GENERAL_HOOK, "
+            "or ensure registry command YAML files are present."
         )
 
     app = FastAPI(
@@ -207,6 +211,13 @@ def create_app() -> FastAPI:
     if has_gitea:
         from .gitea_routes import router as gitea_router
         app.include_router(gitea_router)
+
+    # ------------------------------------------------------------------ #
+    # Notify endpoint (conditional)
+    # ------------------------------------------------------------------ #
+    if has_notify:
+        from .notify_routes import create_notify_router
+        app.include_router(create_notify_router())
 
     # ------------------------------------------------------------------ #
     # Registry command routes (always present when commands exist)
