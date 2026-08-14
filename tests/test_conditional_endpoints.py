@@ -15,8 +15,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
-from app.registry import load_registry, COMMANDS
-
+from app.registry import load_registry
 
 # --------------------------------------------------------------------------- #
 # Helpers
