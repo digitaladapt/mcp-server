@@ -157,3 +157,61 @@ class TestDedicatedRoutes:
         data = resp.json()
         assert data["success"] is True
         assert isinstance(data["stdout"], str)
+
+
+# ---------------------------------------------------------------------------
+# MCP_LOG_ENABLED=false (disabled logging)
+# ---------------------------------------------------------------------------
+
+
+class TestLogDisabled:
+    """When MCP_LOG_ENABLED=false, log writes nothing to disk but still
+    succeeds, and log_read returns empty output with exit 0."""
+
+    def test_log_succeeds_when_disabled(self, app_client, monkeypatch):
+        monkeypatch.setenv("MCP_LOG_ENABLED", "false")
+        resp = app_client.post("/log", json={"message": "ghost"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "ghost" in data["stdout"]
+
+    def test_log_read_returns_empty_when_disabled(self, app_client, monkeypatch):
+        monkeypatch.setenv("MCP_LOG_ENABLED", "false")
+        resp = app_client.post("/log_read", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["stdout"] == ""
+        assert data["exit_code"] == 0
+
+    def test_log_read_empty_after_log_when_disabled(self, app_client, monkeypatch):
+        """Write a message with logging disabled, then read — should be empty."""
+        monkeypatch.setenv("MCP_LOG_ENABLED", "false")
+        app_client.post("/log", json={"message": "should not persist"})
+        resp = app_client.post("/log_read", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["stdout"] == ""
+
+
+class TestLogDevNull:
+    """When MCP_LOG_FILE=/dev/null, log writes succeed and log_read
+    returns empty output without errors (uses -e not -f for file check)."""
+
+    def test_log_succeeds_with_dev_null(self, app_client, monkeypatch):
+        monkeypatch.setenv("MCP_LOG_FILE", "/dev/null")
+        resp = app_client.post("/log", json={"message": "void"})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert "void" in data["stdout"]
+
+    def test_log_read_empty_with_dev_null(self, app_client, monkeypatch):
+        monkeypatch.setenv("MCP_LOG_FILE", "/dev/null")
+        resp = app_client.post("/log_read", json={})
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["success"] is True
+        assert data["stdout"] == ""

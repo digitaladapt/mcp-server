@@ -9,6 +9,13 @@
 #   2. MCP_LOG_DIR environment variable + "/mcp.log"
 #   3. Default: /tmp/mcp/mcp.log
 #
+# Set MCP_LOG_ENABLED=false to disable logging entirely.
+# When disabled, the formatted line is still echoed to stdout (so the
+# caller sees a success response) but nothing is written to disk.
+# This is useful in environments where you don't want log files to
+# accumulate (e.g. ephemeral containers) but still want the MCP tool
+# to function without errors.
+#
 # If the parent directory doesn't exist, it is created.
 # The formatted line is also echoed to stdout for the caller.
 
@@ -33,6 +40,17 @@ done
 
 message="$1"
 
+# Build the timestamped line
+timestamp=$(date '+%Y-%m-%dT%H:%M:%S%z')
+line="[$timestamp] [$level] $message"
+
+# Check if logging is disabled
+if [[ "${MCP_LOG_ENABLED,,}" == "false" ]]; then
+    # Still echo to stdout so the caller sees the formatted line
+    echo "$line"
+    exit 0
+fi
+
 # Determine log file path
 if [[ -n "$MCP_LOG_FILE" ]]; then
     logFile="$MCP_LOG_FILE"
@@ -47,10 +65,6 @@ logDir=$(dirname "$logFile")
 if [[ ! -d "$logDir" ]]; then
     mkdir -p "$logDir" 2>/dev/null || true
 fi
-
-# Build the timestamped line
-timestamp=$(date '+%Y-%m-%dT%H:%M:%S%z')
-line="[$timestamp] [$level] $message"
 
 # Append to the log file
 echo "$line" >> "$logFile"
