@@ -82,12 +82,35 @@ class ArgSpec(BaseModel):
 
 
 class CommandSchema(BaseModel):
-    """Full description of a registrable command."""
+    """Full description of a registrable command.
+
+    ``requires`` is an optional list of environment-variable conditions
+    that must all be satisfied for the command to be available.
+    When any condition is unmet, the command is filtered out at load
+    time — it won't appear in ``GET /commands`` and no dedicated route
+    is generated.
+
+    Each condition is a string evaluated as follows:
+
+    * ``"ENV_VAR"`` (shorthand) — the variable must be set and truthy
+      (not ``"false"``, ``"0"``, or ``""``).
+    * ``"ENV_VAR != value"`` — the variable's value (or empty string
+      if unset) must not equal *value* (case-insensitive).
+      Useful for vars that default to enabled when unset, e.g.
+      ``"MCP_LOG_ENABLED != false"``.
+    * ``"ENV_VAR == value"`` — the variable's value must equal *value*.
+
+    Example::
+
+        requires:
+          - "MCP_LOG_ENABLED != false"
+    """
 
     name: str
     description: str
     executable: str
     args: list[ArgSpec] = []
+    requires: list[str] = []
 
 
 class ExecuteResult(BaseModel):

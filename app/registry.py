@@ -59,8 +59,45 @@ def _load_file(path: Path) -> CommandSchema:
     return schema
 
 
+def _eval_condition(condition: str) -> bool:
+    """Evaluate a single ``requires`` condition against the environment.
+
+    Supported formats (see :class:`CommandSchema` docstring):
+      * ``"ENV_VAR"`` — must be set and truthy
+      * ``"ENV_VAR != value"`` — must not equal *value* (unset = "")
+      * ``"ENV_VAR == value"`` — must equal *value*
+    """
+    import re
+
+    # Match: VAR_NAME  OP  value
+    m = re.match(r"^(\w+)\s*(!=|==)\s*(.+)$", condition.strip())
+    if m:
+        var, op, val = m.group(1), m.group(2), m.group(3).strip()
+        actual = os.environ.get(var, "")
+        if op == "==":
+            return actual.lower() == val.lower()
+        # !=
+        return actual.lower() != val.lower()
+
+    # Shorthand: bare env var name — must be set and truthy.
+    var = condition.strip()
+    if not var:
+        return True  # empty condition, always passes
+    actual = os.environ.get(var, "")
+    return actual.strip().lower() not in ("", "false", "0", "no", "off")
+
+
+def _conditions_met(schema: CommandSchema) -> bool:
+    """Return True if all ``requires`` conditions are satisfied."""
+    return all(_eval_condition(c) for c in schema.requires)
+
+
 def load_registry(registry_dir: Path = REGISTRY_DIR) -> None:
     """Scan ``registry_dir`` and populate :data:`COMMANDS`.
+
+    Commands whose ``requires`` conditions are unmet (e.g. logging is
+    disabled) are skipped — they won't appear in ``GET /commands`` and
+    no dedicated route is generated.
 
     Called automatically on import.  Re-callable to refresh.
     """
@@ -84,6 +121,12 @@ def load_registry(registry_dir: Path = REGISTRY_DIR) -> None:
                 "Skipping duplicate command '%s' from %s "
                 "(already defined in another file)",
                 schema.name, path.name,
+            )
+            continue
+        if not _conditions_met(schema):
+            logger.info(
+                "Skipping command '%s' from %s — requires conditions unmet: %s",
+                schema.name, path.name, schema.requires,
             )
             continue
         COMMANDS[schema.name] = schema

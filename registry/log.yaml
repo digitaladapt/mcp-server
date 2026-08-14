@@ -7,6 +7,8 @@
 name: log
 description: Append a timestamped message to the MCP log file.
 executable: scripts/log.sh
+requires:
+  - "MCP_LOG_ENABLED != false"
 args:
   - name: --level
     type: string

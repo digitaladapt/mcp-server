@@ -6,6 +6,8 @@
 name: log_read
 description: Read the last N lines from the MCP log file.
 executable: scripts/log_read.sh
+requires:
+  - "MCP_LOG_ENABLED != false"
 args:
   - name: lines
     type: string
