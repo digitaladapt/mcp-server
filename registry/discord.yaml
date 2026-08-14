@@ -8,7 +8,7 @@
 # matching how discord.sh parses its argv.
 
 name: discord
-description: Send a message to the Discord chat room.
+description: Send a Discord message.
 executable: scripts/discord.sh
 args:
   # --- flags (must precede the message) -------------------------------
@@ -17,7 +17,7 @@ args:
     required: false
     default: true
     hidden: true
-    help: Quiet mode — suppresses echoing input back. Forced on by default.
+    help: Quiet mode (forced on).
   - name: -a
     type: flag
     required: false
@@ -50,14 +50,14 @@ args:
       - mint
       - lavender
       - white
-    help: Color of the message embed.
+    help: Embed color.
   - name: -t
     type: string
     required: false
     field_name: title
-    help: Title of the message.
+    help: Message title.
   # --- positional -----------------------------------------------------
   - name: message
     type: string
     required: true
-    help: The message body to send.
+    help: Message body.

@@ -17,19 +17,16 @@ Conditionally-registered endpoint groups:
   Calendar (when any calendar provider is configured):
     GET    /events              – list events across all providers
     GET    /events/{uid}        – get a single event
+    GET    /calendars           – list all calendars with metadata
+    POST   /calendars/refresh   – refresh ICS cache (when ICS configured)
     POST   /events              – create (only if editable provider)
     PUT    /events/{uid}        – update (only if editable provider)
     DELETE /events/{uid}        – delete (only if editable provider)
-    GET    /calendars           – list all calendars
     GET    /tasks               – list tasks (CalDAV only)
     GET    /tasks/{uid}         – get a task (CalDAV only)
     POST   /tasks               – create a task (CalDAV editable only)
     PUT    /tasks/{uid}         – update a task (CalDAV editable only)
     DELETE /tasks/{uid}         – delete a task (CalDAV editable only)
-
-  ICS (when ICS_CALENDAR_URL is set):
-    GET /ics/calendars, /ics/events, /ics/events/{uid}
-    POST /ics/refresh, GET /ics/status
 
   Gitea (when GITEA_URL is set):
     /repos, /issues, /prs, /branches, /actions, /releases, etc.
@@ -194,21 +191,15 @@ def create_app() -> FastAPI:
         unified_router = create_unified_router(
             include_read=True,
             include_write=has_editable,
+            include_refresh=has_ics,
         )
         app.include_router(unified_router)
 
-        # Mount CalDAV-specific endpoints (tasks, calendars listing)
-        # only when CalDAV is configured.
+        # Mount CalDAV-specific endpoints (tasks only) when configured.
+        # Calendar listing is now handled by the unified router.
         if has_caldav:
             from .caldav_routes import create_caldav_router
             app.include_router(create_caldav_router())
-
-    # ------------------------------------------------------------------ #
-    # ICS endpoints (conditional)
-    # ------------------------------------------------------------------ #
-    if has_ics:
-        from .ics_routes import create_ics_router
-        app.include_router(create_ics_router())
 
     # ------------------------------------------------------------------ #
     # Gitea endpoints (conditional)
@@ -227,24 +218,24 @@ def create_app() -> FastAPI:
     # Core endpoints (always present)
     # ------------------------------------------------------------------ #
 
-    @app.get("/api/health")
+    @app.get("/api/health", include_in_schema=False)
     async def health() -> dict:
-        """Liveness probe.  Always accessible — no API key required."""
+        """Liveness probe."""
         return {"status": "healthy"}
 
-    @app.get("/api/about")
+    @app.get("/api/about", include_in_schema=False)
     async def about() -> dict:
-        """Return app name and version.  No API key required."""
+        """Return app name and version."""
         return {"name": "mcp-server", "version": app.version}
 
-    @app.get("/commands", response_model=list[CommandSchema])
+    @app.get("/commands", response_model=list[CommandSchema], include_in_schema=False)
     async def get_all_commands(
         _: bool = Depends(verify_api_key),
     ) -> list[CommandSchema]:
         """List every registered command."""
         return list_commands()
 
-    @app.get("/commands/{name}", response_model=CommandSchema)
+    @app.get("/commands/{name}", response_model=CommandSchema, include_in_schema=False)
     async def get_command(
         name: str,
         _: bool = Depends(verify_api_key),
@@ -255,12 +246,12 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Command not found")
         return schema
 
-    @app.get("/validate", response_model=ValidationResult)
+    @app.get("/validate", response_model=ValidationResult, include_in_schema=False)
     async def validate(_: bool = Depends(verify_api_key)) -> ValidationResult:
-        """Validate all registry files and return a detailed report."""
+        """Validate all registry files."""
         return validate_registry()
 
-    @app.get("/jobs")
+    @app.get("/jobs", include_in_schema=False)
     async def list_jobs(_: bool = Depends(verify_api_key)) -> list[dict]:
         """List status of all periodic background jobs."""
         return [j.to_dict() for j in job_scheduler.status()]

@@ -258,11 +258,7 @@ def create_registry_router() -> APIRouter:
             methods=["POST"],
             response_model=ExecuteResult,
             summary=f"{schema.description}",
-            description=(
-                f"Execute the **{name}** command.\n\n"
-                f"Executable: `{schema.executable}`\n\n"
-                "This route is auto-generated from the registry YAML."
-            ),
+            description=schema.description,
         )
 
         logger.info("Registered dedicated route: POST /%s", name)

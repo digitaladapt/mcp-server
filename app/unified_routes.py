@@ -1,22 +1,24 @@
-"""Unified/aggregate events API router.
+"""Unified calendar API router.
 
-This router provides a single set of endpoints that fan out across all
-registered calendar providers (CalDAV, ICS, future sources), merge
-results, and present a unified view.
+Provides a single set of endpoints that fan out across all registered
+calendar providers (CalDAV, ICS, future sources), merge results, and
+present a unified view.
 
 Exposes (when at least one provider is registered):
   GET    /events              – list events across all providers
   GET    /events/{uid}        – get a single event by UID
+  GET    /calendars           – list all calendars with metadata
 
 Exposes (only when an editable provider is registered):
   POST   /events              – create an event (editable calendar only)
   PUT    /events/{uid}        – update an event (editable calendar only)
   DELETE /events/{uid}        – delete an event (editable calendar only)
 
+Exposes (only when ICS is configured):
+  POST   /calendars/refresh   – manually trigger an ICS cache refresh
+
 The router is built dynamically via :func:`create_unified_router` so
-that endpoints only exist when their prerequisites are met.  If no
-provider is registered, the router has no routes.  If only read-only
-providers exist, only GET endpoints are included.
+that endpoints only exist when their prerequisites are met.
 
 All endpoints require API key authentication when MCP_API_KEY is set.
 """
@@ -31,6 +33,7 @@ from starlette.concurrency import run_in_threadpool
 from .auth import verify_api_key
 from .caldav_models import (
     CalendarEvent,
+    CalendarListResponse,
     CreateEventRequest,
     DeleteResponse,
     EventListResponse,
@@ -59,16 +62,20 @@ def create_unified_router(
     *,
     include_read: bool = True,
     include_write: bool = False,
+    include_refresh: bool = False,
 ) -> APIRouter:
-    """Build the unified events router.
+    """Build the unified calendar router.
 
     Parameters
     ----------
     include_read:
-        Whether to include GET endpoints (list events, get event).
+        Whether to include GET endpoints (list events, get event, list calendars).
     include_write:
-        Whether to include POST/PUT/DELETE endpoints (create/update/delete).
+        Whether to include POST/PUT/DELETE event endpoints.
         Only set this to True when an editable provider is registered.
+    include_refresh:
+        Whether to include the ICS cache refresh endpoint.
+        Only set this to True when ICS is configured.
     """
     router = APIRouter(
         prefix="",
@@ -76,7 +83,7 @@ def create_unified_router(
         dependencies=[Depends(verify_api_key)],
     )
 
-    if not include_read and not include_write:
+    if not include_read and not include_write and not include_refresh:
         return router
 
     # ------------------------------------------------------------------ #
@@ -89,11 +96,7 @@ def create_unified_router(
             start: str | None = Query(None, description="ISO 8601 start datetime/date"),
             end: str | None = Query(None, description="ISO 8601 end datetime/date"),
         ) -> EventListResponse:
-            """List events across all configured calendar providers.
-
-            Fans out to every registered provider (CalDAV, ICS, etc.),
-            merges results, sorts by start time, and deduplicates by UID.
-            """
+            """List events across all calendar providers."""
             start_dt = _parse_dt_param(start)
             end_dt = _parse_dt_param(end)
             events = await run_in_threadpool(
@@ -110,6 +113,18 @@ def create_unified_router(
             if event is None:
                 raise HTTPException(status_code=404, detail="Event not found")
             return event
+
+        @router.get("/calendars", response_model=CalendarListResponse)
+        async def list_calendars() -> CalendarListResponse:
+            """List all accessible calendars with editability info."""
+            cals = await run_in_threadpool(provider_registry.list_all_calendars)
+            editable = [c for c in cals if c.editable]
+            readonly = [c for c in cals if not c.editable]
+            return CalendarListResponse(
+                calendars=cals,
+                editable_count=len(editable),
+                readonly_count=len(readonly),
+            )
 
     # ------------------------------------------------------------------ #
     # Write endpoints — only included when an editable provider exists
@@ -160,5 +175,27 @@ def create_unified_router(
             if not deleted:
                 raise HTTPException(status_code=404, detail="Event not found")
             return DeleteResponse(deleted=True, uid=uid)
+
+    # ------------------------------------------------------------------ #
+    # ICS cache refresh — only included when ICS is configured
+    # ------------------------------------------------------------------ #
+
+    if include_refresh:
+        @router.post("/calendars/refresh")
+        async def refresh_cache() -> dict:
+            """Manually trigger a cache refresh of ICS feeds."""
+            from .ics_routes import _get_service as _get_ics_service
+
+            svc = _get_ics_service()
+            try:
+                result = await svc.refresh()
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=502, detail=f"ICS error: {exc}")
+            return {
+                "success": result.success,
+                "events_cached": result.events_cached,
+                "error": result.error,
+                "refreshed_at": result.refreshed_at,
+            }
 
     return router
