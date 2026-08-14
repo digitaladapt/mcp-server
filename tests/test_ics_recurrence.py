@@ -8,7 +8,7 @@ individual occurrences to be retrieved via ``get_event``.
 
 from __future__ import annotations
 
-from datetime import UTC, date, datetime
+from datetime import date, datetime
 from unittest.mock import AsyncMock, patch
 
 import pytest

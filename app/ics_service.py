@@ -275,8 +275,8 @@ class ICSService:
         """Expand recurring events using ``recurring-ical-events``."""
         # Determine the query bounds for the library.
         # Default to a wide range if one side is missing.
-        query_start = self._to_query_dt(start) or datetime(1970, 1, 1)
-        query_end = self._to_query_dt(end, end_of_day=True) or datetime(2038, 1, 1)
+        query_start = self._to_query_dt(start) or datetime(1970, 1, 1, tzinfo=UTC)
+        query_end = self._to_query_dt(end, end_of_day=True) or datetime(2038, 1, 1, tzinfo=UTC)
 
         name = self._config.name
         try:
@@ -407,7 +407,7 @@ class ICSService:
 
         # Handle composite UIDs ({original}__{start_iso}).
         if "__" in uid and self._calendar is not None:
-            base_uid, _, start_iso = uid.rpartition("__")
+            _, _, start_iso = uid.rpartition("__")
             try:
                 occurrence_start = datetime.fromisoformat(start_iso)
             except ValueError:
