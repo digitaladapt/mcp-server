@@ -1,7 +1,7 @@
 # docker-compose.yml – easy local development & deployment of MCP Server.
 #
 # Usage:
-#   1. cp .env.example .env   and fill in DISCORD_GENERAL_HOOK
+#   1. cp .env.example .env   and fill in DISCORD_*_HOOK
 #   2. docker compose up -d
 #   3. curl http://localhost:8000/commands
 #

@@ -278,7 +278,7 @@ class TestRealRegistry:
     """Smoke tests against the project's actual ``registry/`` directory."""
 
     EXPECTED_COMMANDS: ClassVar[set[str]] = {
-        "discord", "log", "log_read",
+        "log", "log_read",
     }
 
     def test_real_commands_load(self) -> None:

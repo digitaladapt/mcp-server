@@ -53,14 +53,14 @@ class TestListCommands:
         cmds = mcp_client.list_commands()
         assert isinstance(cmds, list)
 
-    def test_at_least_three_commands(self, mcp_client: MCPClient) -> None:
+    def test_at_least_two_commands(self, mcp_client: MCPClient) -> None:
         cmds = mcp_client.list_commands()
-        assert len(cmds) >= 3
+        assert len(cmds) >= 2
 
-    def test_includes_log_and_discord(self, mcp_client: MCPClient) -> None:
+    def test_includes_log_and_log_read(self, mcp_client: MCPClient) -> None:
         names = {c["name"] for c in mcp_client.list_commands()}
         assert "log" in names
-        assert "discord" in names
+        assert "log_read" in names
 
 
 # --------------------------------------------------------------------------- #

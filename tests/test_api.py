@@ -1,8 +1,9 @@
 """HTTP API tests for the MCP Server FastAPI endpoints.
 
 Uses the ``app_client`` fixture from ``conftest.py`` which spins up a
-``TestClient`` against the real app and real registry (commands: discord,
-log, log_read).
+``TestClient`` against the real app and real registry (commands: log,
+log_read).  Discord is now a native notify provider, not a registry
+command.
 """
 
 from __future__ import annotations
@@ -29,12 +30,12 @@ class TestHealth:
 class TestCommands:
     """Listing and inspecting registered commands."""
 
-    def test_list_returns_200_with_at_least_three(self, app_client):
+    def test_list_returns_200_with_at_least_two(self, app_client):
         resp = app_client.get("/commands")
         assert resp.status_code == 200
         data = resp.json()
         assert isinstance(data, list)
-        assert len(data) >= 3
+        assert len(data) >= 2
 
     def test_each_item_has_required_fields(self, app_client):
         data = app_client.get("/commands").json()
@@ -46,8 +47,8 @@ class TestCommands:
 
     def test_expected_command_names_present(self, app_client):
         names = {c["name"] for c in app_client.get("/commands").json()}
-        assert "discord" in names
         assert "log" in names
+        assert "log_read" in names
 
     def test_get_valid_command(self, app_client):
         resp = app_client.get("/commands/log")
@@ -83,9 +84,9 @@ class TestValidate:
         data = app_client.get("/validate").json()
         assert data["valid"] is True
 
-    def test_validate_total_at_least_three(self, app_client):
+    def test_validate_total_at_least_two(self, app_client):
         data = app_client.get("/validate").json()
-        assert data["total"] >= 3
+        assert data["total"] >= 2
 
     def test_validate_issues_structure(self, app_client):
         data = app_client.get("/validate").json()
