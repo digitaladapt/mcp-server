@@ -353,13 +353,13 @@ The URL must end with `?wait=true`.
 
 ```bash
 cp scripts/config.sh.example scripts/config.sh
-# Edit scripts/config.sh and set DISCORD_GENERAL_HOOK
+# Edit scripts/config.sh and set DISCORD_INFO_HOOK / DISCORD_NOTICE_HOOK
 docker compose up -d   # or uvicorn directly
 ```
 
 `discord.sh` reads `config.sh` from its own directory, so the file must be
 at `scripts/config.sh`.  If `config.sh` is missing, the script falls back
-to environment variables (`DISCORD_GENERAL_HOOK`, etc.).
+to environment variables (`DISCORD_INFO_HOOK`, etc.).
 
 ## CalDAV Calendar
 
@@ -498,13 +498,14 @@ For Docker, use environment variables instead of `config.sh`:
 
 ```bash
 cp .env.example .env
-# Edit .env and set DISCORD_GENERAL_HOOK
+# Edit .env and set at least one DISCORD_*_HOOK
 docker compose up -d
 ```
 
 The `.env` file is loaded by `docker-compose.yml` and the environment
-variables are picked up by `discord.sh` automatically.  Only
-`DISCORD_GENERAL_HOOK` is required; the rest have fallback defaults.
+variables are picked up by the notify service automatically.  At least
+one `DISCORD_*_HOOK` is required; levels fall back to the nearest lower
+configured level.
 
 Alternatively, you can mount a `config.sh` file (see the commented volume
 in `docker-compose.yml`).

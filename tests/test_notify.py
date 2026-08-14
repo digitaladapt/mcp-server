@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from fastapi.testclient import TestClient
 
-from app.notify_models import COLOR_MAP, NotifyRequest, NotifyResult
+from app.notify_models import COLOR_MAP, LEVEL_ORDER, NotifyRequest, NotifyResult
 from app.notify_service import (
     DiscordProvider,
     NotifyRegistry,
@@ -23,7 +23,7 @@ class TestNotifyModels:
     def test_minimal_request(self):
         req = NotifyRequest(message="Hello world")
         assert req.message == "Hello world"
-        assert req.priority == "default"
+        assert req.level == "notice"
         assert req.title is None
         assert req.color is None
         assert req.channels is None
@@ -32,11 +32,11 @@ class TestNotifyModels:
         req = NotifyRequest(
             message="Deploy complete",
             title="CI",
-            priority="urgent",
+            level="emergency",
             color="red",
             channels=["discord"],
         )
-        assert req.priority == "urgent"
+        assert req.level == "emergency"
         assert req.color == "red"
         assert req.channels == ["discord"]
 
@@ -58,6 +58,9 @@ class TestNotifyModels:
             assert isinstance(emoji, str)
             assert len(emoji) > 0
 
+    def test_level_order_is_ascending(self):
+        assert LEVEL_ORDER == ["info", "notice", "critical", "emergency"]
+
 
 # --------------------------------------------------------------------------- #
 # DiscordProvider tests
@@ -65,12 +68,15 @@ class TestNotifyModels:
 
 class TestDiscordProvider:
     def test_from_env_returns_none_when_not_configured(self, monkeypatch):
-        monkeypatch.delenv("DISCORD_GENERAL_HOOK", raising=False)
+        for key in ("DISCORD_INFO_HOOK", "DISCORD_NOTICE_HOOK", "DISCORD_CRITICAL_HOOK", "DISCORD_EMERGENCY_HOOK"):
+            monkeypatch.delenv(key, raising=False)
         assert DiscordProvider.from_env() is None
 
     def test_from_env_creates_provider(self, monkeypatch):
-        monkeypatch.setenv("DISCORD_GENERAL_HOOK", "https://discord.com/api/webhooks/123/abc?wait=true")
-        monkeypatch.setenv("DISCORD_ALERT_HOOK", "https://discord.com/api/webhooks/123/alert?wait=true")
+        monkeypatch.setenv("DISCORD_INFO_HOOK", "https://discord.com/api/webhooks/123/info?wait=true")
+        monkeypatch.setenv("DISCORD_NOTICE_HOOK", "https://discord.com/api/webhooks/123/notice?wait=true")
+        monkeypatch.setenv("DISCORD_CRITICAL_HOOK", "https://discord.com/api/webhooks/123/critical?wait=true")
+        monkeypatch.setenv("DISCORD_EMERGENCY_HOOK", "https://discord.com/api/webhooks/123/emergency?wait=true")
         monkeypatch.setenv("DISCORD_SERVER_NAME", "test-bot")
         monkeypatch.setenv("DISCORD_TITLE_SUFFIX", "· test-bot")
 
@@ -78,14 +84,19 @@ class TestDiscordProvider:
         assert provider is not None
         assert provider.name == "discord"
         assert provider.is_configured is True
+        assert len(provider._webhooks) == 4
 
-    def test_from_env_alert_defaults_to_general(self, monkeypatch):
-        monkeypatch.setenv("DISCORD_GENERAL_HOOK", "https://discord.com/api/webhooks/123/abc?wait=true")
-        monkeypatch.delenv("DISCORD_ALERT_HOOK", raising=False)
+    def test_from_env_single_webhook(self, monkeypatch):
+        """Only info hook configured — all levels fall back to it."""
+        monkeypatch.delenv("DISCORD_NOTICE_HOOK", raising=False)
+        monkeypatch.delenv("DISCORD_CRITICAL_HOOK", raising=False)
+        monkeypatch.delenv("DISCORD_EMERGENCY_HOOK", raising=False)
+        monkeypatch.setenv("DISCORD_INFO_HOOK", "https://discord.com/api/webhooks/123/abc?wait=true")
 
         provider = DiscordProvider.from_env()
         assert provider is not None
-        assert provider._webhook_url == provider._alert_webhook_url
+        assert len(provider._webhooks) == 1
+        assert "info" in provider._webhooks
 
     @patch("app.notify_service.httpx.Client")
     def test_send_basic_message(self, mock_client_cls):
@@ -97,7 +108,7 @@ class TestDiscordProvider:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        provider = DiscordProvider(webhook_url="https://discord.com/api/webhooks/123/abc?wait=true")
+        provider = DiscordProvider(webhooks={"notice": "https://discord.com/api/webhooks/123/abc?wait=true"})
         req = NotifyRequest(message="Hello world")
         result = provider.send(req)
 
@@ -124,7 +135,7 @@ class TestDiscordProvider:
         mock_client_cls.return_value = mock_client
 
         provider = DiscordProvider(
-            webhook_url="https://discord.com/api/webhooks/123/abc?wait=true",
+            webhooks={"notice": "https://discord.com/api/webhooks/123/abc?wait=true"},
             username="test-bot",
             title_suffix="· test-bot",
         )
@@ -139,7 +150,8 @@ class TestDiscordProvider:
         assert payload["username"] == "test-bot"
 
     @patch("app.notify_service.httpx.Client")
-    def test_high_priority_uses_alert_webhook(self, mock_client_cls):
+    def test_each_level_routes_to_correct_webhook(self, mock_client_cls):
+        """All four levels route to their own webhook when configured."""
         mock_resp = MagicMock()
         mock_resp.status_code = 204
         mock_client = MagicMock()
@@ -148,18 +160,47 @@ class TestDiscordProvider:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        general = "https://discord.com/api/webhooks/123/general?wait=true"
-        alert = "https://discord.com/api/webhooks/123/alert?wait=true"
+        webhooks = {
+            "info":      "https://discord.com/api/webhooks/123/info?wait=true",
+            "notice":    "https://discord.com/api/webhooks/123/notice?wait=true",
+            "critical":  "https://discord.com/api/webhooks/123/critical?wait=true",
+            "emergency": "https://discord.com/api/webhooks/123/emergency?wait=true",
+        }
+        provider = DiscordProvider(webhooks=webhooks)
 
-        provider = DiscordProvider(webhook_url=general, alert_webhook_url=alert)
-        req = NotifyRequest(message="Critical alert", priority="urgent")
+        for level in ("info", "notice", "critical", "emergency"):
+            mock_client.post.reset_mock()
+            req = NotifyRequest(message=f"Test {level}", level=level)
+            provider.send(req)
+            call_url = mock_client.post.call_args.args[0]
+            assert call_url == webhooks[level], f"{level} should route to its own webhook"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_emergency_falls_back_to_critical(self, mock_client_cls):
+        """Emergency falls back to critical when emergency hook is missing."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 204
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        webhooks = {
+            "info":     "https://discord.com/api/webhooks/123/info?wait=true",
+            "notice":   "https://discord.com/api/webhooks/123/notice?wait=true",
+            "critical": "https://discord.com/api/webhooks/123/critical?wait=true",
+        }
+        provider = DiscordProvider(webhooks=webhooks)
+        req = NotifyRequest(message="Emergency!", level="emergency")
         provider.send(req)
 
         call_url = mock_client.post.call_args.args[0]
-        assert call_url == alert
+        assert call_url == webhooks["critical"]
 
     @patch("app.notify_service.httpx.Client")
-    def test_default_priority_uses_general_webhook(self, mock_client_cls):
+    def test_critical_falls_back_to_notice(self, mock_client_cls):
+        """Critical falls back to notice when critical hook is missing."""
         mock_resp = MagicMock()
         mock_resp.status_code = 204
         mock_client = MagicMock()
@@ -168,15 +209,80 @@ class TestDiscordProvider:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        general = "https://discord.com/api/webhooks/123/general?wait=true"
-        alert = "https://discord.com/api/webhooks/123/alert?wait=true"
+        webhooks = {
+            "info":   "https://discord.com/api/webhooks/123/info?wait=true",
+            "notice": "https://discord.com/api/webhooks/123/notice?wait=true",
+        }
+        provider = DiscordProvider(webhooks=webhooks)
+        req = NotifyRequest(message="Critical!", level="critical")
+        provider.send(req)
 
-        provider = DiscordProvider(webhook_url=general, alert_webhook_url=alert)
+        call_url = mock_client.post.call_args.args[0]
+        assert call_url == webhooks["notice"]
+
+    @patch("app.notify_service.httpx.Client")
+    def test_notice_falls_back_to_info(self, mock_client_cls):
+        """Notice falls back to info when notice hook is missing."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 204
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        webhooks = {
+            "info": "https://discord.com/api/webhooks/123/info?wait=true",
+        }
+        provider = DiscordProvider(webhooks=webhooks)
+        req = NotifyRequest(message="Notice!", level="notice")
+        provider.send(req)
+
+        call_url = mock_client.post.call_args.args[0]
+        assert call_url == webhooks["info"]
+
+    @patch("app.notify_service.httpx.Client")
+    def test_emergency_falls_back_all_the_way_to_info(self, mock_client_cls):
+        """Emergency falls back to the lowest available level."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 204
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        webhooks = {
+            "info": "https://discord.com/api/webhooks/123/info?wait=true",
+        }
+        provider = DiscordProvider(webhooks=webhooks)
+        req = NotifyRequest(message="Emergency!", level="emergency")
+        provider.send(req)
+
+        call_url = mock_client.post.call_args.args[0]
+        assert call_url == webhooks["info"]
+
+    @patch("app.notify_service.httpx.Client")
+    def test_default_level_is_notice(self, mock_client_cls):
+        """Default level is notice, routes to notice webhook."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 204
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        webhooks = {
+            "info":   "https://discord.com/api/webhooks/123/info?wait=true",
+            "notice": "https://discord.com/api/webhooks/123/notice?wait=true",
+        }
+        provider = DiscordProvider(webhooks=webhooks)
         req = NotifyRequest(message="Normal message")
         provider.send(req)
 
         call_url = mock_client.post.call_args.args[0]
-        assert call_url == general
+        assert call_url == webhooks["notice"]
 
     @patch("app.notify_service.httpx.Client")
     def test_api_error_returns_failure(self, mock_client_cls):
@@ -189,7 +295,7 @@ class TestDiscordProvider:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        provider = DiscordProvider(webhook_url="https://discord.com/api/webhooks/123/abc?wait=true")
+        provider = DiscordProvider(webhooks={"notice": "https://discord.com/api/webhooks/123/abc?wait=true"})
         req = NotifyRequest(message="Hello")
         result = provider.send(req)
 
@@ -205,7 +311,7 @@ class TestDiscordProvider:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        provider = DiscordProvider(webhook_url="https://discord.com/api/webhooks/123/abc?wait=true")
+        provider = DiscordProvider(webhooks={"notice": "https://discord.com/api/webhooks/123/abc?wait=true"})
         req = NotifyRequest(message="Hello")
         result = provider.send(req)
 
@@ -222,7 +328,7 @@ class TestDiscordProvider:
         mock_client.__exit__ = MagicMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        provider = DiscordProvider(webhook_url="https://discord.com/api/webhooks/123/abc?wait=true")
+        provider = DiscordProvider(webhooks={"notice": "https://discord.com/api/webhooks/123/abc?wait=true"})
         # Create a message longer than DISCORD_MAX_CONTENT
         long_msg = "A" * 5000
         req = NotifyRequest(message=long_msg)
@@ -307,8 +413,10 @@ class TestNotifyRegistry:
 @pytest.fixture
 def notify_client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     """A TestClient with Discord notify configured (mocked HTTP)."""
-    monkeypatch.setenv("DISCORD_GENERAL_HOOK", "https://discord.com/api/webhooks/123/abc?wait=true")
-    monkeypatch.setenv("DISCORD_ALERT_HOOK", "https://discord.com/api/webhooks/123/alert?wait=true")
+    monkeypatch.setenv("DISCORD_INFO_HOOK", "https://discord.com/api/webhooks/123/info?wait=true")
+    monkeypatch.setenv("DISCORD_NOTICE_HOOK", "https://discord.com/api/webhooks/123/notice?wait=true")
+    monkeypatch.setenv("DISCORD_CRITICAL_HOOK", "https://discord.com/api/webhooks/123/critical?wait=true")
+    monkeypatch.setenv("DISCORD_EMERGENCY_HOOK", "https://discord.com/api/webhooks/123/emergency?wait=true")
     monkeypatch.setenv("DISCORD_SERVER_NAME", "test-bot")
 
     # Clean up other providers to avoid interference.
@@ -358,7 +466,7 @@ class TestNotifyEndpoint:
                 "message": "Deploy failed",
                 "title": "CI",
                 "color": "red",
-                "priority": "urgent",
+                "level": "emergency",
             })
 
         assert resp.status_code == 200
@@ -375,8 +483,8 @@ class TestNotifyEndpoint:
         resp = notify_client.post("/notify", json={"message": "Hi", "color": "teal"})
         assert resp.status_code == 422
 
-    def test_notify_invalid_priority_rejected(self, notify_client):
-        resp = notify_client.post("/notify", json={"message": "Hi", "priority": "critical"})
+    def test_notify_invalid_level_rejected(self, notify_client):
+        resp = notify_client.post("/notify", json={"message": "Hi", "level": "urgent"})
         assert resp.status_code == 422
 
     def test_notify_missing_message_rejected(self, notify_client):

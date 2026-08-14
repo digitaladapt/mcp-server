@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
+# Discord webhook configuration for the notify system.
+#
+# Copy to config.sh and fill in your webhook URLs.
+# At least one hook is required.  URLs should end with ?wait=true.
+#
+# Webhooks are per severity level (low → high).  If a level's hook
+# is not set, it falls back to the nearest lower configured level.
 
-# used by discord.sh
-DISCORD_SERVER_NAME=$(hostname)
-DISCORD_TITLE_SUFFIX="· $DISCORD_SERVER_NAME"
-DISCORD_GENERAL_HOOK="<WEBHOOK_URL_HERE>?wait=true"
-# you can send alerts to a different channel, if desired via "-a"
-DISCORD_ALERT_HOOK="$DISCORD_GENERAL_HOOK"
+DISCORD_INFO_HOOK="<WEBHOOK_URL_HERE>?wait=true"
+DISCORD_NOTICE_HOOK="<WEBHOOK_URL_HERE>?wait=true"
+#DISCORD_CRITICAL_HOOK="<WEBHOOK_URL_HERE>?wait=true"
+#DISCORD_EMERGENCY_HOOK="<WEBHOOK_URL_HERE>?wait=true"
+
+# Optional: bot display name and title suffix.
+#DISCORD_SERVER_NAME="my-server"
+#DISCORD_TITLE_SUFFIX="· my-server"

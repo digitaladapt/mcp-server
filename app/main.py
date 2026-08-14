@@ -176,8 +176,8 @@ def create_app() -> FastAPI:
     if not has_calendar and not has_gitea and not registry_commands and not has_notify:
         raise RuntimeError(
             "No features configured.  Set at least one of: "
-            "CALDAV_URL, ICS_CALENDAR_URL, GITEA_URL, DISCORD_GENERAL_HOOK, "
-            "or ensure registry command YAML files are present."
+            "CALDAV_URL, ICS_CALENDAR_URL, GITEA_URL, DISCORD_INFO_HOOK, "
+            "or ensure registry command YAML files are present, or a DISCORD_*_HOOK is set."
         )
 
     app = FastAPI(

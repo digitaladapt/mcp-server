@@ -15,12 +15,20 @@ from typing import Protocol, runtime_checkable
 
 import httpx
 
-from .notify_models import COLOR_MAP, NotifyRequest, NotifyResult
+from .notify_models import COLOR_MAP, LEVEL_ORDER, NotifyRequest, NotifyResult
 
 logger = logging.getLogger(__name__)
 
 #: Discord message content limit (safe margin below 4096).
 DISCORD_MAX_CONTENT = 3600
+
+# Env var names for each level, ordered low → high.
+_DISCORD_ENV_KEYS: dict[str, str] = {
+    "info":      "DISCORD_INFO_HOOK",
+    "notice":    "DISCORD_NOTICE_HOOK",
+    "critical":  "DISCORD_CRITICAL_HOOK",
+    "emergency": "DISCORD_EMERGENCY_HOOK",
+}
 
 
 # --------------------------------------------------------------------------- #
@@ -53,36 +61,39 @@ class NotifyProvider(Protocol):
 class DiscordProvider:
     """Send notifications to Discord via webhook.
 
-    Replaces the old discord.sh script.  Sends markdown-formatted
-    messages as embeds, with optional color and title.
+    Supports up to four webhooks, one per severity level.  If a
+    webhook for the requested level is not configured, falls back to
+    the nearest lower configured level.
     """
 
     def __init__(
         self,
-        webhook_url: str,
-        alert_webhook_url: str | None = None,
+        webhooks: dict[str, str],
         username: str | None = None,
         title_suffix: str | None = None,
     ) -> None:
-        self._webhook_url = webhook_url
-        self._alert_webhook_url = alert_webhook_url or webhook_url
+        # Store only configured levels, keyed by level name.
+        self._webhooks: dict[str, str] = dict(webhooks)
         self._username = username
         self._title_suffix = title_suffix
 
     @classmethod
     def from_env(cls) -> DiscordProvider | None:
         """Build from environment variables.  Returns None if not configured."""
-        url = os.environ.get("DISCORD_GENERAL_HOOK", "").strip()
-        if not url:
+        webhooks: dict[str, str] = {}
+        for level, env_key in _DISCORD_ENV_KEYS.items():
+            url = os.environ.get(env_key, "").strip()
+            if url:
+                webhooks[level] = url
+
+        if not webhooks:
             return None
 
-        alert_url = os.environ.get("DISCORD_ALERT_HOOK", "").strip() or None
         server_name = os.environ.get("DISCORD_SERVER_NAME", "").strip() or None
         title_suffix = os.environ.get("DISCORD_TITLE_SUFFIX", "").strip() or None
 
         return cls(
-            webhook_url=url,
-            alert_webhook_url=alert_url,
+            webhooks=webhooks,
             username=server_name,
             title_suffix=title_suffix,
         )
@@ -93,12 +104,38 @@ class DiscordProvider:
 
     @property
     def is_configured(self) -> bool:
-        return bool(self._webhook_url)
+        return bool(self._webhooks)
+
+    def _resolve_webhook(self, level: str) -> str | None:
+        """Resolve a webhook URL for the given level.
+
+        Falls back to the nearest lower configured level if the
+        exact level is not available.
+        """
+        if level in self._webhooks:
+            return self._webhooks[level]
+
+        idx = LEVEL_ORDER.index(level)
+        for candidate in reversed(LEVEL_ORDER[:idx]):
+            if candidate in self._webhooks:
+                return self._webhooks[candidate]
+
+        # Fall back to the lowest configured level.
+        for candidate in LEVEL_ORDER:
+            if candidate in self._webhooks:
+                return self._webhooks[candidate]
+
+        return None
 
     def send(self, req: NotifyRequest) -> NotifyResult:
         """Send notification to Discord webhook."""
-        # High/urgent priority routes to the alert webhook.
-        webhook = self._alert_webhook_url if req.priority in ("high", "urgent") else self._webhook_url
+        webhook = self._resolve_webhook(req.level)
+        if not webhook:
+            return NotifyResult(
+                provider=self.name,
+                success=False,
+                error="No Discord webhook configured",
+            )
 
         # Split message into chunks that fit Discord's embed limit.
         chunks = self._split_message(req.message)

@@ -24,7 +24,12 @@ COLOR_MAP: dict[str, tuple[int, str]] = {
 COLOR_NAMES = list(COLOR_MAP.keys())
 ColorName = Literal["red", "orange", "yellow", "green", "blue", "purple", "brown", "black", "white"]
 
-Priority = Literal["low", "default", "high", "urgent"]
+# Severity levels (low → high), aligned with PSR-3 / syslog.
+# Maps to Ntfy priorities: info→2, notice→3, critical→4, emergency→5.
+Level = Literal["info", "notice", "critical", "emergency"]
+
+# Ordered low → high for webhook fallback resolution.
+LEVEL_ORDER: list[str] = ["info", "notice", "critical", "emergency"]
 
 
 class NotifyRequest(BaseModel):
@@ -32,7 +37,7 @@ class NotifyRequest(BaseModel):
 
     message: str
     title: str | None = None
-    priority: Priority = "default"
+    level: Level = "notice"
     color: ColorName | None = None
     channels: list[str] | None = None
 
