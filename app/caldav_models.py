@@ -3,9 +3,11 @@
 These models cover events (VEVENT) and tasks (VTODO), supporting
 the unified calendar view where some calendars are read-only.
 
-Events support VALARM components (calendar alarms/reminders).  By
-default, newly created events get a single DISPLAY alarm at the
-start time unless ``enable_alarms`` is set to ``False``.
+Both events and tasks support VALARM components (calendar
+alarms/reminders).  By default, newly created events get a single
+DISPLAY alarm at the start time, and tasks with a due date get a
+DISPLAY alarm at the due time (noon for date-only values), unless
+``enable_alarms`` is set to ``False``.
 """
 
 from __future__ import annotations
@@ -90,6 +92,9 @@ class CalendarEvent(BaseModel):
     end: str  # ISO 8601 datetime or date string
     all_day: bool = False
     location: str | None = None
+    categories: list[str] = []
+    status: str | None = None  # TENTATIVE, CONFIRMED, CANCELLED
+    priority: int | None = None  # 1 (highest) – 9 (lowest)
     calendar_name: str
     editable: bool
     alarms: list[AlarmSpec] = []
@@ -109,6 +114,9 @@ class CreateEventRequest(BaseModel):
     end: str  # ISO 8601 datetime
     location: str | None = None
     all_day: bool = False
+    categories: list[str] | None = None
+    status: str | None = None  # defaults to CONFIRMED on create
+    priority: int | None = None
     alarms: list[AlarmSpec] | None = None
     enable_alarms: bool = True
 
@@ -117,6 +125,23 @@ class CreateEventRequest(BaseModel):
     def summary_not_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("summary must not be empty")
+        return v
+
+    @field_validator("status")
+    @classmethod
+    def status_valid(cls, v: str | None) -> str | None:
+        if v is not None:
+            allowed = {"TENTATIVE", "CONFIRMED", "CANCELLED"}
+            if v.upper() not in allowed:
+                raise ValueError(f"status must be one of {allowed}")
+            return v.upper()
+        return v
+
+    @field_validator("priority")
+    @classmethod
+    def priority_range(cls, v: int | None) -> int | None:
+        if v is not None and not (1 <= v <= 9):
+            raise ValueError("priority must be between 1 and 9")
         return v
 
 
@@ -138,8 +163,28 @@ class UpdateEventRequest(BaseModel):
     end: str | None = None
     location: str | None = None
     all_day: bool | None = None
+    categories: list[str] | None = None
+    status: str | None = None
+    priority: int | None = None
     alarms: list[AlarmSpec] | None = None
     enable_alarms: bool | None = None
+
+    @field_validator("status")
+    @classmethod
+    def status_valid(cls, v: str | None) -> str | None:
+        if v is not None:
+            allowed = {"TENTATIVE", "CONFIRMED", "CANCELLED"}
+            if v.upper() not in allowed:
+                raise ValueError(f"status must be one of {allowed}")
+            return v.upper()
+        return v
+
+    @field_validator("priority")
+    @classmethod
+    def priority_range(cls, v: int | None) -> int | None:
+        if v is not None and not (1 <= v <= 9):
+            raise ValueError("priority must be between 1 and 9")
+        return v
 
 
 # --------------------------------------------------------------------------- #
@@ -155,17 +200,30 @@ class CalendarTask(BaseModel):
     due: str | None = None  # ISO 8601
     priority: int | None = None  # 1 (highest) – 9 (lowest)
     status: str | None = None  # NEEDS-ACTION, IN-PROCESS, COMPLETED, CANCELLED
+    percent_complete: int | None = None  # 0–100
+    categories: list[str] = []
     calendar_name: str
     editable: bool
+    alarms: list[AlarmSpec] = []
 
 
 class CreateTaskRequest(BaseModel):
-    """Payload for creating a new task on the editable calendar."""
+    """Payload for creating a new task on the editable calendar.
+
+    By default, if a due date is present, a single DISPLAY alarm is
+    added at the due time.  For date-only due values (no time), the
+    alarm fires at noon.  Provide ``alarms`` for custom alarms, or
+    set ``enable_alarms=False`` to suppress alarms entirely.
+    """
 
     summary: str
     description: str | None = None
     due: str | None = None
     priority: int | None = None
+    percent_complete: int | None = None
+    categories: list[str] | None = None
+    alarms: list[AlarmSpec] | None = None
+    enable_alarms: bool = True
 
     @field_validator("summary")
     @classmethod
@@ -181,11 +239,24 @@ class CreateTaskRequest(BaseModel):
             raise ValueError("priority must be between 1 and 9")
         return v
 
+    @field_validator("percent_complete")
+    @classmethod
+    def percent_complete_range(cls, v: int | None) -> int | None:
+        if v is not None and not (0 <= v <= 100):
+            raise ValueError("percent_complete must be between 0 and 100")
+        return v
+
 
 class UpdateTaskRequest(BaseModel):
     """Payload for updating an existing task.
 
     All fields are optional — only provided fields are updated.
+
+    Alarm handling (same semantics as events):
+    - If ``alarms`` is provided (including an empty list), all existing
+      alarms are replaced with the new set.
+    - If ``alarms`` is ``None`` (omitted), existing alarms are preserved.
+    - If ``enable_alarms`` is ``False``, all alarms are removed.
     """
 
     summary: str | None = None
@@ -193,6 +264,10 @@ class UpdateTaskRequest(BaseModel):
     due: str | None = None
     priority: int | None = None
     status: str | None = None
+    percent_complete: int | None = None
+    categories: list[str] | None = None
+    alarms: list[AlarmSpec] | None = None
+    enable_alarms: bool | None = None
 
     @field_validator("priority")
     @classmethod
@@ -209,6 +284,13 @@ class UpdateTaskRequest(BaseModel):
             if v.upper() not in allowed:
                 raise ValueError(f"status must be one of {allowed}")
             return v.upper()
+        return v
+
+    @field_validator("percent_complete")
+    @classmethod
+    def percent_complete_range(cls, v: int | None) -> int | None:
+        if v is not None and not (0 <= v <= 100):
+            raise ValueError("percent_complete must be between 0 and 100")
         return v
 
 

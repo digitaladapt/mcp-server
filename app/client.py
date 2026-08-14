@@ -180,7 +180,8 @@ class MCPClient:
 
         Keyword arguments map to :class:`~app.caldav_models.CreateEventRequest`
         fields: ``summary`` (required), ``start``, ``end``, ``description``,
-        ``location``, ``all_day``, ``alarms``, ``enable_alarms``.
+        ``location``, ``all_day``, ``categories``, ``status``, ``priority``,
+        ``alarms``, ``enable_alarms``.
 
         By default a single DISPLAY alarm at event start is added.
         Set ``enable_alarms=False`` to suppress, or provide ``alarms``
@@ -193,7 +194,8 @@ class MCPClient:
 
         Keyword arguments map to :class:`~app.caldav_models.UpdateEventRequest`
         fields: ``summary``, ``description``, ``start``, ``end``, ``location``,
-        ``all_day``, ``alarms``, ``enable_alarms``.
+        ``all_day``, ``categories``, ``status``, ``priority``, ``alarms``,
+        ``enable_alarms``.
         """
         return self._put(f"/events/{uid}", fields)
 
@@ -213,7 +215,12 @@ class MCPClient:
         """Create a new task on the editable calendar.
 
         Keyword arguments map to :class:`~app.caldav_models.CreateTaskRequest`
-        fields: ``summary`` (required), ``description``, ``due``, ``priority``.
+        fields: ``summary`` (required), ``description``, ``due``, ``priority``,
+        ``percent_complete``, ``categories``, ``alarms``, ``enable_alarms``.
+
+        By default, if a due date is present, a DISPLAY alarm is added
+        at the due time (noon for date-only values).  Set
+        ``enable_alarms=False`` to suppress.
         """
         return self._post("/tasks", fields)
 
@@ -221,7 +228,8 @@ class MCPClient:
         """Update an existing task on the editable calendar.
 
         Keyword arguments map to :class:`~app.caldav_models.UpdateTaskRequest`
-        fields: ``summary``, ``description``, ``due``, ``priority``, ``status``.
+        fields: ``summary``, ``description``, ``due``, ``priority``, ``status``,
+        ``percent_complete``, ``categories``, ``alarms``, ``enable_alarms``.
         """
         return self._put(f"/tasks/{uid}", fields)
 
