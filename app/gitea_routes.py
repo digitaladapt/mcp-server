@@ -1,10 +1,9 @@
 """FastAPI router for Gitea integration endpoints.
 
-Exposes:
+Core endpoints (always in OpenAPI schema):
   GET    /repos/{owner}/{repo}           – get repo info
   GET    /user/repos                      – list accessible repos
   GET    /repos/{owner}/{repo}/commits    – list commits
-  GET    /repos/{owner}/{repo}/compare    – compare two refs
 
   GET    /issues                          – list issues (default repo)
   GET    /issues/{index}                  – get a single issue
@@ -22,17 +21,20 @@ Exposes:
   POST   /prs                             – create a PR
   PATCH  /prs/{index}                     – update a PR
   POST   /prs/{index}/merge               – merge a PR
-  GET    /prs/{index}/reviews             – list reviews on a PR
   POST   /prs/{index}/comments            – comment on a PR
 
   GET    /actions                         – list CI workflow runs
-  GET    /commits/{sha}/statuses          – get commit CI status
 
   GET    /releases                        – list releases
   GET    /releases/{id}                   – get a single release
   POST   /releases                        – create a release
   PATCH  /releases/{id}                   – update a release
   DELETE /releases/{id}                   – delete a release
+
+Opt-in endpoints (set MCP_GITEA_EXTRA_TOOLS=1 to include in schema):
+  GET    /repos/{owner}/{repo}/compare    – compare two refs
+  GET    /prs/{index}/reviews             – list reviews on a PR
+  GET    /commits/{sha}/statuses          – get commit CI status
 
 All endpoints require API key authentication when MCP_API_KEY is set.
 Returns 503 if Gitea is not configured (GITEA_URL unset).
@@ -79,6 +81,12 @@ from .gitea_service import GiteaError, GiteaService
 
 router = APIRouter(prefix="", tags=["gitea"], dependencies=[Depends(verify_api_key)])
 
+# Extra/niche Gitea endpoints are hidden from the OpenAPI schema by default.
+# Set MCP_GITEA_EXTRA_TOOLS=1 to expose them (compare refs, PR reviews, commit statuses).
+import os as _os
+
+_extra_tools = _os.environ.get("MCP_GITEA_EXTRA_TOOLS", "").strip().lower() in ("1", "true", "yes")
+
 # Singleton service — lazily initialised from env vars.
 _service: GiteaService | None = None
 _service_inited: bool = False
@@ -121,7 +129,7 @@ def _reset_service() -> None:
 
 @router.get("/repos/{owner}/{repo}", response_model=RepoDetail)
 async def get_repo(owner: str, repo: str) -> RepoDetail:
-    """Get information about a specific repository."""
+    """Get repo info."""
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.get_repo, owner=owner, repo=repo)
@@ -131,7 +139,7 @@ async def get_repo(owner: str, repo: str) -> RepoDetail:
 
 @router.get("/user/repos", response_model=RepoListResponse)
 async def list_repos() -> RepoListResponse:
-    """List repositories accessible to the configured token."""
+    """List accessible repos."""
     svc = _get_service()
     try:
         repos = await run_in_threadpool(svc.list_repos)
@@ -144,11 +152,11 @@ async def list_repos() -> RepoListResponse:
 async def list_commits(
     owner: str,
     repo: str,
-    sha: str | None = Query(None, description="Branch/tag to list commits from"),
+    sha: str | None = Query(None, description="Branch or tag"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
 ) -> CommitListResponse:
-    """List recent commits in a repository."""
+    """List commits in a repo."""
     svc = _get_service()
     try:
         commits = await run_in_threadpool(svc.list_commits, sha=sha, owner=owner, repo=repo, page=page, limit=limit)
@@ -157,7 +165,7 @@ async def list_commits(
     return CommitListResponse(commits=commits, total=len(commits))
 
 
-@router.get("/repos/{owner}/{repo}/compare", response_model=CompareResult)
+@router.get("/repos/{owner}/{repo}/compare", response_model=CompareResult, include_in_schema=_extra_tools)
 async def compare_refs(owner: str, repo: str, base: str, head: str) -> CompareResult:
     """Compare two refs (branches, tags, or SHAs) in a repository."""
     svc = _get_service()
@@ -173,14 +181,14 @@ async def compare_refs(owner: str, repo: str, base: str, head: str) -> CompareRe
 
 @router.get("/issues", response_model=IssueListResponse)
 async def list_issues(
-    state: str = Query("open", description="Filter: open, closed, all"),
-    labels: str | None = Query(None, description="Comma-separated label names"),
-    owner: str | None = Query(None, description="Repo owner (defaults to config)"),
-    repo: str | None = Query(None, description="Repo name (defaults to config)"),
+    state: str = Query("open", description="State filter"),
+    labels: str | None = Query(None, description="Label names"),
+    owner: str | None = Query(None, description="Repo owner"),
+    repo: str | None = Query(None, description="Repo name"),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
 ) -> IssueListResponse:
-    """List issues in the (default) repository."""
+    """List issues."""
     svc = _get_service()
     try:
         issues = await run_in_threadpool(
@@ -198,7 +206,7 @@ async def get_issue(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> IssueDetail:
-    """Get a single issue by its number."""
+    """Get an issue."""
     svc = _get_service()
     try:
         issue = await run_in_threadpool(svc.get_issue, index, owner=owner, repo=repo)
@@ -215,7 +223,7 @@ async def create_issue(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> IssueDetail:
-    """Create a new issue in the (default) repository."""
+    """Create an issue."""
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_issue, req, owner=owner, repo=repo)
@@ -230,7 +238,7 @@ async def update_issue(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> IssueDetail:
-    """Update an existing issue (e.g. close it, change title)."""
+    """Update an issue."""
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.update_issue, index, req, owner=owner, repo=repo)
@@ -244,7 +252,7 @@ async def list_issue_comments(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> CommentListResponse:
-    """List comments on an issue."""
+    """List issue comments."""
     svc = _get_service()
     try:
         comments = await run_in_threadpool(svc.list_issue_comments, index, owner=owner, repo=repo)
@@ -277,7 +285,7 @@ async def list_branches(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> BranchListResponse:
-    """List branches in the (default) repository."""
+    """List branches."""
     svc = _get_service()
     try:
         branches = await run_in_threadpool(svc.list_branches, owner=owner, repo=repo)
@@ -292,7 +300,7 @@ async def create_branch(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> BranchInfo:
-    """Create a new branch from an existing ref."""
+    """Create a branch."""
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_branch, req, owner=owner, repo=repo)
@@ -323,13 +331,13 @@ async def delete_branch(
 
 @router.get("/prs", response_model=PRListResponse)
 async def list_prs(
-    state: str = Query("open", description="Filter: open, closed, all"),
+    state: str = Query("open", description="State filter"),
     owner: str | None = Query(None),
     repo: str | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
 ) -> PRListResponse:
-    """List pull requests in the (default) repository."""
+    """List pull requests."""
     svc = _get_service()
     try:
         prs = await run_in_threadpool(svc.list_prs, state=state, owner=owner, repo=repo, page=page, limit=limit)
@@ -344,7 +352,7 @@ async def get_pr(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> PRDetail:
-    """Get a single pull request by its number."""
+    """Get a pull request."""
     svc = _get_service()
     try:
         pr = await run_in_threadpool(svc.get_pr, index, owner=owner, repo=repo)
@@ -361,7 +369,7 @@ async def create_pr(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> PRDetail:
-    """Create a new pull request."""
+    """Create a pull request."""
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_pr, req, owner=owner, repo=repo)
@@ -376,7 +384,7 @@ async def update_pr(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> PRDetail:
-    """Update a pull request (e.g. close it, change title)."""
+    """Update a pull request."""
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.update_pr, index, req, owner=owner, repo=repo)
@@ -406,13 +414,13 @@ async def merge_pr(
     )
 
 
-@router.get("/prs/{index}/reviews", response_model=ReviewListResponse)
+@router.get("/prs/{index}/reviews", response_model=ReviewListResponse, include_in_schema=_extra_tools)
 async def list_pr_reviews(
     index: int,
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> ReviewListResponse:
-    """List reviews on a pull request."""
+    """List PR reviews."""
     svc = _get_service()
     try:
         reviews = await run_in_threadpool(svc.list_pr_reviews, index, owner=owner, repo=repo)
@@ -428,7 +436,7 @@ async def create_pr_comment(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> CommentDetail:
-    """Comment on a pull request."""
+    """Comment on a PR."""
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_pr_comment, index, req, owner=owner, repo=repo)
@@ -447,7 +455,7 @@ async def list_actions(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
 ) -> ActionRunListResponse:
-    """List CI workflow runs in the (default) repository."""
+    """List CI workflow runs."""
     svc = _get_service()
     try:
         runs = await run_in_threadpool(svc.list_actions, owner=owner, repo=repo, page=page, limit=limit)
@@ -456,13 +464,13 @@ async def list_actions(
     return ActionRunListResponse(runs=runs, total=len(runs))
 
 
-@router.get("/commits/{sha}/statuses", response_model=CommitStatusListResponse)
+@router.get("/commits/{sha}/statuses", response_model=CommitStatusListResponse, include_in_schema=_extra_tools)
 async def get_commit_statuses(
     sha: str,
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> CommitStatusListResponse:
-    """Get CI status checks for a specific commit."""
+    """Get commit CI status."""
     svc = _get_service()
     try:
         statuses = await run_in_threadpool(svc.get_commit_statuses, sha, owner=owner, repo=repo)
@@ -482,7 +490,7 @@ async def list_releases(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
 ) -> ReleaseListResponse:
-    """List releases in the (default) repository."""
+    """List releases."""
     svc = _get_service()
     try:
         releases = await run_in_threadpool(svc.list_releases, owner=owner, repo=repo, page=page, limit=limit)
@@ -497,7 +505,7 @@ async def get_release(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> ReleaseDetail:
-    """Get a single release by ID."""
+    """Get a release."""
     svc = _get_service()
     try:
         release = await run_in_threadpool(svc.get_release, release_id, owner=owner, repo=repo)
@@ -514,7 +522,7 @@ async def create_release(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> ReleaseDetail:
-    """Create a new release."""
+    """Create a release."""
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_release, req, owner=owner, repo=repo)
@@ -529,7 +537,7 @@ async def update_release(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
 ) -> ReleaseDetail:
-    """Update an existing release."""
+    """Update a release."""
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.update_release, release_id, req, owner=owner, repo=repo)

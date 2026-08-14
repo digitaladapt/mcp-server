@@ -17,8 +17,8 @@ args:
       - warn
       - error
     default: info
-    help: Log level (info, warn, error). Defaults to info.
+    help: Log level.
   - name: message
     type: string
     required: true
-    help: The message to log.
+    help: Message to log.

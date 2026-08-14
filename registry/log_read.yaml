@@ -11,4 +11,4 @@ args:
     type: string
     required: false
     default: "50"
-    help: Number of lines to read from the end (default 50).
+    help: Number of lines to read.
