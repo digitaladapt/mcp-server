@@ -38,6 +38,7 @@ available, the server refuses to start (no usable endpoints).
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -57,11 +58,56 @@ from .registry_routes import create_registry_router
 
 # Configure logging so registry warnings (and any other log messages)
 # are visible alongside uvicorn's output.
+#
+# The default level is INFO.  Set MCP_LOG_LEVEL=DEBUG (or via the
+# LOG_LEVEL env var that uvicorn respects) to see health-check access
+# logs and other verbose output.
 logging.basicConfig(
-    level=logging.INFO,
+    level=os.environ.get("MCP_LOG_LEVEL", "INFO").upper(),
     format="%(levelname)s:     %(name)s — %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+class _HealthCheckFilter(logging.Filter):
+    """Suppress uvicorn access logs for ``/api/health``.
+
+    The docker-compose healthcheck (and any LLM client polling the
+    liveness endpoint) hits ``/api/health`` on a regular interval.
+    Uvicorn's access logger emits every request at INFO level, which
+    floods the output with lines like::
+
+        INFO:     uvicorn.access — ... "GET /api/health HTTP/1.1" 200
+
+    This filter drops those records when the access logger's effective
+    level is above DEBUG.  Set the level to DEBUG (``MCP_LOG_LEVEL=DEBUG``)
+    to see them again.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Only inspect uvicorn.access records (this filter is attached
+        # to that logger, but be defensive).
+        if record.name != "uvicorn.access":
+            return True
+
+        # Uvicorn logs access as:
+        #   info('%s - "%s %s HTTP/%s" %d', addr, method, path, ver, status)
+        # so record.args[2] is the request path.
+        try:
+            path = record.args[2]  # type: ignore[index]
+        except (TypeError, IndexError):
+            return True
+
+        if path == "/api/health":
+            # Suppress unless we're at DEBUG or below.
+            return record.levelno <= logging.DEBUG
+
+        return True
+
+
+# Attach the filter to uvicorn's access logger.
+_access_logger = logging.getLogger("uvicorn.access")
+_access_logger.addFilter(_HealthCheckFilter())
 
 
 # --------------------------------------------------------------------------- #
