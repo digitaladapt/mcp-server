@@ -100,37 +100,36 @@ class DiscordProvider:
         # High/urgent priority routes to the alert webhook.
         webhook = self._alert_webhook_url if req.priority in ("high", "urgent") else self._webhook_url
 
-        # Build embed.
-        embed: dict = {"description": req.message}
-
-        if req.color:
-            embed["color"] = COLOR_MAP[req.color][0]
-
-        title = req.title
-        if title and self._title_suffix:
-            title = f"{title} {self._title_suffix}"
-        if title:
-            embed["title"] = title
-
-        payload: dict = {"embeds": [embed]}
-        if self._username:
-            payload["username"] = self._username
+        # Split message into chunks that fit Discord's embed limit.
+        chunks = self._split_message(req.message)
 
         try:
             with httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
-                resp = client.post(webhook, json=payload)
+                for i, chunk in enumerate(chunks):
+                    embed: dict = {"description": chunk}
 
-            if resp.status_code >= 400:
-                return NotifyResult(
-                    provider=self.name,
-                    success=False,
-                    error=f"Discord API error {resp.status_code}: {resp.text[:200]}",
-                )
+                    if req.color:
+                        embed["color"] = COLOR_MAP[req.color][0]
 
-            # Handle message splitting for long content.
-            remaining = req.message[DISCORD_MAX_CONTENT:]
-            if remaining:
-                self._send_remaining(remaining, req, webhook)
+                    # Title only on the first chunk.
+                    if i == 0 and req.title:
+                        title = req.title
+                        if self._title_suffix:
+                            title = f"{title} {self._title_suffix}"
+                        embed["title"] = title
+
+                    payload: dict = {"embeds": [embed]}
+                    if self._username:
+                        payload["username"] = self._username
+
+                    resp = client.post(webhook, json=payload)
+
+                    if resp.status_code >= 400:
+                        return NotifyResult(
+                            provider=self.name,
+                            success=False,
+                            error=f"Discord API error {resp.status_code}: {resp.text[:200]}",
+                        )
 
         except httpx.HTTPError as exc:
             return NotifyResult(
@@ -141,38 +140,36 @@ class DiscordProvider:
 
         return NotifyResult(provider=self.name, success=True)
 
-    def _send_remaining(self, content: str, req: NotifyRequest, webhook: str) -> None:
-        """Send overflow content as additional messages."""
-        # Try to break at a newline near the split point.
-        chunk = content
-        extra = ""
-        if len(content) > DISCORD_MAX_CONTENT:
-            chunk = content[:DISCORD_MAX_CONTENT]
-            extra = content[DISCORD_MAX_CONTENT:]
-            # Try to break at last newline in chunk.
+    @staticmethod
+    def _split_message(message: str) -> list[str]:
+        """Split a message into chunks that fit within Discord's limit.
+
+        Tries to break at newlines near the split point for readability.
+        """
+        if len(message) <= DISCORD_MAX_CONTENT:
+            return [message]
+
+        chunks: list[str] = []
+        remaining = message
+
+        while remaining:
+            if len(remaining) <= DISCORD_MAX_CONTENT:
+                chunks.append(remaining)
+                break
+
+            chunk = remaining[:DISCORD_MAX_CONTENT]
+            remaining = remaining[DISCORD_MAX_CONTENT:]
+
+            # Try to break at the last newline in the chunk,
+            # but only if the resulting chunk is still substantial.
             last_nl = chunk.rfind("\n")
             if last_nl > 1000:
-                extra = chunk[last_nl + 1:] + extra
+                remaining = chunk[last_nl + 1:] + remaining
                 chunk = chunk[:last_nl]
 
-        embed: dict = {"description": chunk}
-        if req.color:
-            embed["color"] = COLOR_MAP[req.color][0]
-        if req.title and self._title_suffix:
-            embed["title"] = f"{req.title} {self._title_suffix}"
+            chunks.append(chunk)
 
-        payload: dict = {"embeds": [embed]}
-        if self._username:
-            payload["username"] = self._username
-
-        try:
-            with httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
-                client.post(webhook, json=payload)
-        except httpx.HTTPError:
-            pass  # best-effort for overflow
-
-        if extra:
-            self._send_remaining(extra, req, webhook)
+        return chunks
 
 
 # --------------------------------------------------------------------------- #
