@@ -238,9 +238,9 @@ class NtfyProvider:
     the requested level is not configured, the provider falls back to
     the nearest lower configured level.
 
-    Color is conveyed via a colored circle emoji prefix (🔴, 🟠, etc.)
-    rather than an embed colour integer, since ntfy has no concept of
-    embed colours.
+    Color is conveyed via ntfy named tags (e.g. "red_circle") which
+    ntfy renders as emoji on the client side, rather than an embed
+    colour integer, since ntfy has no concept of embed colours.
     """
 
     def __init__(
@@ -318,24 +318,9 @@ class NtfyProvider:
 
         return None
 
-    def _build_headers(self, req: NotifyRequest, topic_level: str) -> dict[str, str]:
-        """Build the ntfy HTTP headers for a publish request."""
-        headers: dict[str, str] = {
-            "Priority": str(_NTFY_PRIORITY[topic_level]),
-        }
-
-        if req.title:
-            title = req.title
-            if self._title_suffix:
-                title = f"{title} {self._title_suffix}"
-            headers["Title"] = title
-
-        # Color is conveyed as a colored circle emoji tag.
-        if req.color:
-            emoji = COLOR_MAP[req.color][1]
-            headers["Tags"] = emoji
-
-        # Auth: prefer bearer token, fall back to basic auth.
+    def _build_auth_headers(self) -> dict[str, str]:
+        """Build auth headers for the ntfy request."""
+        headers: dict[str, str] = {}
         if self._token:
             headers["Authorization"] = f"Bearer {self._token}"
         elif self._username and self._password is not None:
@@ -344,11 +329,17 @@ class NtfyProvider:
                 f"{self._username}:{self._password}".encode()
             ).decode()
             headers["Authorization"] = f"Basic {cred}"
-
         return headers
 
     def send(self, req: NotifyRequest) -> NotifyResult:
-        """Send notification to ntfy."""
+        """Send notification to ntfy using JSON publishing.
+
+        Uses ntfy's JSON publishing format (POST to the base URL with
+        a JSON body) instead of header-based publishing.  This avoids
+        encoding issues with non-ASCII characters (emoji, unicode) in
+        the Title and Tags headers — Python's HTTP stack enforces
+        Latin-1 on header values, which can't represent emoji.
+        """
         topic = self._resolve_topic(req.level)
         if not topic:
             return NotifyResult(
@@ -366,12 +357,31 @@ class NtfyProvider:
                     resolved_level = lvl
                     break
 
-        url = f"{self._base_url}/{topic}"
-        headers = self._build_headers(req, resolved_level)
+        # Build the JSON publish payload.
+        # See: https://docs.ntfy.sh/publish/#publish-as-json
+        payload: dict = {
+            "topic": topic,
+            "message": req.message,
+            "priority": _NTFY_PRIORITY[resolved_level],
+        }
+
+        if req.title:
+            title = req.title
+            if self._title_suffix:
+                title = f"{title} {self._title_suffix}"
+            payload["title"] = title
+
+        # Color is conveyed as an ntfy named tag (e.g. "red_circle").
+        # ntfy renders these as emoji on the client side.
+        if req.color:
+            payload["tags"] = [COLOR_MAP[req.color][1]]
+
+        headers = self._build_auth_headers()
+        headers["Content-Type"] = "application/json"
 
         try:
             with httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
-                resp = client.post(url, content=req.message, headers=headers)
+                resp = client.post(self._base_url, json=payload, headers=headers)
 
                 if resp.status_code >= 400:
                     return NotifyResult(
