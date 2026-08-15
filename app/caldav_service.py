@@ -268,6 +268,9 @@ class CalDAVService:
             end=self._format_dt(dtend),
             all_day=self._is_all_day(dtstart),
             location=str(ev.get("location")) if ev.get("location") else None,
+            categories=self._parse_categories(ev),
+            status=str(ev.get("status")) if ev.get("status") else None,
+            priority=int(ev.get("priority")) if ev.get("priority") else None,
             calendar_name=calendar_name,
             editable=editable,
             alarms=self._parse_alarms(ev),
@@ -333,6 +336,12 @@ class CalDAVService:
             event.add("description", req.description)
         if req.location:
             event.add("location", req.location)
+        if req.categories:
+            self._set_categories(event, req.categories)
+        # Default status for new events is CONFIRMED
+        event.add("status", req.status or "CONFIRMED")
+        if req.priority is not None:
+            event.add("priority", req.priority)
 
         # Add alarms (defaults to one DISPLAY alarm at event start)
         alarm_specs = self._resolve_alarm_specs(req)
@@ -353,6 +362,9 @@ class CalDAVService:
             end=req.end,
             all_day=req.all_day,
             location=req.location,
+            categories=req.categories or [],
+            status=req.status or "CONFIRMED",
+            priority=req.priority,
             calendar_name=self._config.editable_calendar,
             editable=True,
             alarms=alarm_specs,
@@ -399,6 +411,14 @@ class CalDAVService:
         if req.location is not None:
             ev_component.pop("location", None)
             ev_component.add("location", req.location)
+        if req.categories is not None:
+            self._set_categories(ev_component, req.categories)
+        if req.status is not None:
+            ev_component.pop("status", None)
+            ev_component.add("status", req.status)
+        if req.priority is not None:
+            ev_component.pop("priority", None)
+            ev_component.add("priority", req.priority)
 
         # Handle dtstart
         if req.start is not None:
@@ -466,6 +486,9 @@ class CalDAVService:
             end=req.end or "",
             all_day=target_all_day,
             location=req.location,
+            categories=req.categories or [],
+            status=req.status,
+            priority=req.priority,
             calendar_name=self._config.editable_calendar,
             editable=True,
             alarms=alarm_specs if alarm_specs is not None else [],
@@ -538,6 +561,9 @@ class CalDAVService:
         priority = todo.get("priority")
         priority_val = int(priority) if priority else None
 
+        percent = todo.get("percent-complete")
+        percent_val = int(percent) if percent else None
+
         return CalendarTask(
             uid=str(todo.get("uid", "")),
             summary=str(todo.get("summary", "")),
@@ -545,8 +571,11 @@ class CalDAVService:
             due=self._format_dt(todo.get("due")),
             priority=priority_val,
             status=str(todo.get("status")) if todo.get("status") else None,
+            percent_complete=percent_val,
+            categories=self._parse_categories(todo),
             calendar_name=calendar_name,
             editable=editable,
+            alarms=self._parse_alarms(todo),
         )
 
     @_with_connection_recovery
@@ -601,6 +630,24 @@ class CalDAVService:
             todo.add("due", self._parse_dt(req.due))
         if req.priority is not None:
             todo.add("priority", req.priority)
+        if req.percent_complete is not None:
+            todo.add("percent-complete", req.percent_complete)
+        if req.categories:
+            self._set_categories(todo, req.categories)
+
+        # Auto-manage percent-complete / status linkage
+        effective_status = "NEEDS-ACTION"
+        effective_percent = req.percent_complete
+        if req.percent_complete == 100:
+            effective_status = "COMPLETED"
+            todo.pop("status", None)
+            todo.add("status", effective_status)
+        else:
+            todo.add("status", effective_status)
+
+        # Add alarms (defaults to one DISPLAY alarm at due time if due is set)
+        alarm_specs = self._resolve_task_alarm_specs(req)
+        self._attach_alarms(todo, self._specs_to_ical(alarm_specs, req.summary))
 
         ical.add_component(todo)
 
@@ -615,9 +662,12 @@ class CalDAVService:
             description=req.description,
             due=req.due,
             priority=req.priority,
-            status="NEEDS-ACTION",
+            status=effective_status,
+            percent_complete=effective_percent,
+            categories=req.categories or [],
             calendar_name=self._config.editable_calendar,
             editable=True,
+            alarms=alarm_specs,
         )
 
     @_with_connection_recovery
@@ -650,9 +700,35 @@ class CalDAVService:
         if req.priority is not None:
             todo_component.pop("priority", None)
             todo_component.add("priority", req.priority)
+        if req.percent_complete is not None:
+            todo_component.pop("percent-complete", None)
+            todo_component.add("percent-complete", req.percent_complete)
+        if req.categories is not None:
+            self._set_categories(todo_component, req.categories)
+
+        # Auto-manage status / percent-complete linkage
         if req.status is not None:
             todo_component.pop("status", None)
             todo_component.add("status", req.status)
+            if req.status == "COMPLETED" and req.percent_complete is None:
+                todo_component.pop("percent-complete", None)
+                todo_component.add("percent-complete", 100)
+        if req.percent_complete == 100 and req.status is None:
+            todo_component.pop("status", None)
+            todo_component.add("status", "COMPLETED")
+
+        # Handle alarms (same semantics as events)
+        effective_summary = (
+            req.summary if req.summary is not None
+            else str(todo_component.get("summary", ""))
+        )
+        alarm_specs = self._resolve_task_alarm_specs(req)
+        if alarm_specs is not None:
+            self._attach_alarms(
+                todo_component,
+                self._specs_to_ical(alarm_specs, effective_summary),
+            )
+        # If alarm_specs is None, preserve existing alarms
 
         # Update DTSTAMP and LAST-MODIFIED
         now = datetime.now(UTC)
@@ -678,8 +754,11 @@ class CalDAVService:
             due=req.due,
             priority=req.priority,
             status=req.status,
+            percent_complete=req.percent_complete,
+            categories=req.categories or [],
             calendar_name=self._config.editable_calendar,
             editable=True,
+            alarms=alarm_specs if alarm_specs is not None else [],
         )
 
     @_with_connection_recovery
@@ -814,6 +893,47 @@ class CalDAVService:
         return list(alarms_field)
 
     @staticmethod
+    def _resolve_task_alarm_specs(
+        req: CreateTaskRequest | UpdateTaskRequest,
+    ) -> list[AlarmSpec] | None:
+        """Resolve the list of AlarmSpec for a task, or None if
+        existing alarms should be preserved.
+
+        For CreateTaskRequest:
+        - If ``enable_alarms`` is False → empty list (no alarms).
+        - If ``alarms`` is provided → use those.
+        - If ``alarms`` is None and ``enable_alarms`` is True and a due
+          date is present → default: one DISPLAY alarm at the due time.
+          For date-only due values (no time), the alarm fires at noon.
+        - If no due date is present → empty list (nothing to anchor to).
+
+        For UpdateTaskRequest:
+        - If ``enable_alarms`` is False → empty list (remove all).
+        - If ``alarms`` is provided → use those (replaces existing).
+        - If ``alarms`` is None and ``enable_alarms`` is None → None
+          (caller preserves existing alarms).
+        """
+        alarms_field = getattr(req, "alarms", None)
+        enable_field = getattr(req, "enable_alarms", None)
+
+        if isinstance(req, CreateTaskRequest):
+            if not req.enable_alarms:
+                return []
+            if alarms_field is not None:
+                return list(alarms_field)
+            # Default: alarm at due time if due is set
+            if req.due:
+                return [AlarmSpec(trigger_minutes=0)]
+            return []  # no due date, no default alarm
+
+        # UpdateTaskRequest
+        if enable_field is False:
+            return []
+        if alarms_field is None:
+            return None  # preserve existing
+        return list(alarms_field)
+
+    @staticmethod
     def _specs_to_ical(
         specs: list[AlarmSpec],
         summary: str,
@@ -834,17 +954,16 @@ class CalDAVService:
 
     @staticmethod
     def _attach_alarms(
-        event_component: ICalEvent,
+        component: Any,
         alarms: list[ICalAlarm],
     ) -> None:
-        """Attach alarm components to a VEVENT, replacing any existing ones."""
-        # Remove existing VALARM subcomponents
-        event_component.subcomponents = [
-            sub for sub in event_component.subcomponents
+        """Attach alarm components to a VEVENT/VTODO, replacing any existing ones."""
+        component.subcomponents = [
+            sub for sub in component.subcomponents
             if sub.name != "VALARM"
         ]
         for alarm in alarms:
-            event_component.add_component(alarm)
+            component.add_component(alarm)
 
     @staticmethod
     def _parse_alarms(event_component: Any) -> list[AlarmSpec]:
@@ -887,6 +1006,32 @@ class CalDAVService:
                 related_to=related,
             ))
         return result
+
+    # ------------------------------------------------------------------ #
+    # Category helpers (CATEGORIES)
+    # ------------------------------------------------------------------ #
+
+    @staticmethod
+    def _set_categories(component: Any, categories: list[str]) -> None:
+        """Set the CATEGORIES property on an icalendar component,
+        replacing any existing value."""
+        component.pop("categories", None)
+        if categories:
+            component.add("categories", categories)
+
+    @staticmethod
+    def _parse_categories(component: Any) -> list[str]:
+        """Extract CATEGORIES from an icalendar component as a list of strings."""
+        cats = component.get("categories")
+        if cats is None:
+            return []
+        # icalendar may return a vCategory or vText
+        if hasattr(cats, "cats"):
+            return [str(c) for c in cats.cats]
+        if isinstance(cats, list):
+            return [str(c) for c in cats]
+        # Single value or vText
+        return [str(cats)]
 
     # ------------------------------------------------------------------ #
     # Datetime helpers

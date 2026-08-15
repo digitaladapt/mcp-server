@@ -1793,3 +1793,657 @@ class TestParseEventAlarms:
         result = svc._parse_event(mock_obj, "Lyra", True)
         assert result is not None
         assert result.alarms == []
+
+
+# --------------------------------------------------------------------------- #
+# Tests for new iCal field enhancements
+# --------------------------------------------------------------------------- #
+
+class TestEventCategories:
+    """Tests for CATEGORIES on events."""
+
+    @pytest.fixture
+    def mock_service(self) -> tuple:
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        service = CalDAVService(config)
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_cal.url = "https://caldav.example.com/lyra"
+        mock_cal.save_event = MagicMock()
+        service._calendars_cache = [mock_cal]
+        return service, mock_cal
+
+    def test_create_event_with_categories(self, mock_service) -> None:
+        service, mock_cal = mock_service
+        req = CreateEventRequest(
+            summary="Categorized Event",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+            categories=["Work", "Important"],
+        )
+        result = service.create_event(req)
+        assert result.categories == ["Work", "Important"]
+        saved = mock_cal.save_event.call_args[0][0]
+        assert "CATEGORIES" in saved
+
+    def test_create_event_no_categories(self, mock_service) -> None:
+        service, _ = mock_service
+        req = CreateEventRequest(
+            summary="Plain Event",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+        )
+        result = service.create_event(req)
+        assert result.categories == []
+
+    def test_parse_event_with_categories(self) -> None:
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        event = ICalEvent()
+        event.add("uid", "cat-1")
+        event.add("summary", "Cat Event")
+        event.add("dtstart", datetime(2026, 1, 15, 10, 0, tzinfo=UTC))
+        event.add("dtend", datetime(2026, 1, 15, 11, 0, tzinfo=UTC))
+        event.add("categories", ["Work", "Urgent"])
+        ical.add_component(event)
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        mock_obj = MagicMock()
+        mock_obj.icalendar_component = ical
+        result = svc._parse_event(mock_obj, "Lyra", True)
+        assert result is not None
+        assert "Work" in result.categories
+        assert "Urgent" in result.categories
+
+    def test_update_event_categories(self) -> None:
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        event = ICalEvent()
+        event.add("uid", "cat-upd")
+        event.add("dtstamp", datetime(2026, 1, 1, tzinfo=UTC))
+        event.add("dtstart", datetime(2026, 1, 15, 10, 0, tzinfo=UTC))
+        event.add("dtend", datetime(2026, 1, 15, 11, 0, tzinfo=UTC))
+        event.add("summary", "Original")
+        ical.add_component(event)
+
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+
+        mock_target = MagicMock()
+        mock_target.data = ical.to_ical().decode("utf-8")
+        mock_target.save = MagicMock()
+        mock_target.icalendar_component = None
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        svc._calendars_cache = [mock_cal]
+        svc._find_by_uid = MagicMock(return_value=mock_target)
+
+        req = UpdateEventRequest(categories=["New", "Tags"])
+        result = svc.update_event("cat-upd", req)
+        assert "New" in result.categories
+        assert "Tags" in result.categories
+
+
+class TestEventStatus:
+    """Tests for STATUS on events."""
+
+    @pytest.fixture
+    def mock_service(self) -> tuple:
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        service = CalDAVService(config)
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_cal.save_event = MagicMock()
+        service._calendars_cache = [mock_cal]
+        return service, mock_cal
+
+    def test_create_event_default_status(self, mock_service) -> None:
+        service, mock_cal = mock_service
+        req = CreateEventRequest(
+            summary="Default Status",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+        )
+        result = service.create_event(req)
+        assert result.status == "CONFIRMED"
+        saved = mock_cal.save_event.call_args[0][0]
+        assert "CONFIRMED" in saved
+
+    def test_create_event_tentative(self, mock_service) -> None:
+        service, _mock_cal = mock_service
+        req = CreateEventRequest(
+            summary="Tentative",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+            status="tentative",
+        )
+        result = service.create_event(req)
+        assert result.status == "TENTATIVE"
+
+    def test_invalid_status_rejected(self) -> None:
+        with pytest.raises(ValueError, match="status must be one of"):
+            CreateEventRequest(
+                summary="Bad",
+                start="2026-01-15T10:00:00",
+                end="2026-01-15T11:00:00",
+                status="BANANA",
+            )
+
+    def test_parse_event_status(self) -> None:
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        event = ICalEvent()
+        event.add("uid", "st-1")
+        event.add("summary", "Status Event")
+        event.add("dtstart", datetime(2026, 1, 15, 10, 0, tzinfo=UTC))
+        event.add("dtend", datetime(2026, 1, 15, 11, 0, tzinfo=UTC))
+        event.add("status", "TENTATIVE")
+        ical.add_component(event)
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        mock_obj = MagicMock()
+        mock_obj.icalendar_component = ical
+        result = svc._parse_event(mock_obj, "Lyra", True)
+        assert result is not None
+        assert result.status == "TENTATIVE"
+
+
+class TestEventPriority:
+    """Tests for PRIORITY on events."""
+
+    @pytest.fixture
+    def mock_service(self) -> tuple:
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        service = CalDAVService(config)
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_cal.save_event = MagicMock()
+        service._calendars_cache = [mock_cal]
+        return service, mock_cal
+
+    def test_create_event_with_priority(self, mock_service) -> None:
+        service, mock_cal = mock_service
+        req = CreateEventRequest(
+            summary="High Priority",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+            priority=1,
+        )
+        result = service.create_event(req)
+        assert result.priority == 1
+        saved = mock_cal.save_event.call_args[0][0]
+        assert "PRIORITY:1" in saved
+
+    def test_create_event_no_priority(self, mock_service) -> None:
+        service, _ = mock_service
+        req = CreateEventRequest(
+            summary="Normal",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+        )
+        result = service.create_event(req)
+        assert result.priority is None
+
+    def test_invalid_priority_rejected(self) -> None:
+        with pytest.raises(ValueError, match="priority must be between 1 and 9"):
+            CreateEventRequest(
+                summary="Bad",
+                start="2026-01-15T10:00:00",
+                end="2026-01-15T11:00:00",
+                priority=0,
+            )
+
+    def test_update_event_priority(self) -> None:
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        event = ICalEvent()
+        event.add("uid", "pri-upd")
+        event.add("dtstamp", datetime(2026, 1, 1, tzinfo=UTC))
+        event.add("dtstart", datetime(2026, 1, 15, 10, 0, tzinfo=UTC))
+        event.add("dtend", datetime(2026, 1, 15, 11, 0, tzinfo=UTC))
+        event.add("summary", "Original")
+        ical.add_component(event)
+
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+
+        mock_target = MagicMock()
+        mock_target.data = ical.to_ical().decode("utf-8")
+        mock_target.save = MagicMock()
+        mock_target.icalendar_component = None
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        svc._calendars_cache = [mock_cal]
+        svc._find_by_uid = MagicMock(return_value=mock_target)
+
+        req = UpdateEventRequest(priority=5)
+        result = svc.update_event("pri-upd", req)
+        assert result.priority == 5
+
+
+class TestTaskPercentComplete:
+    """Tests for PERCENT-COMPLETE on tasks."""
+
+    @pytest.fixture
+    def mock_service(self) -> tuple:
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        service = CalDAVService(config)
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_cal.save_todo = MagicMock()
+        service._calendars_cache = [mock_cal]
+        return service, mock_cal
+
+    def test_create_task_with_percent(self, mock_service) -> None:
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(summary="Half done", percent_complete=50)
+        result = service.create_task(req)
+        assert result.percent_complete == 50
+        saved = mock_cal.save_todo.call_args[0][0]
+        assert "PERCENT-COMPLETE:50" in saved
+
+    def test_create_task_100_percent_auto_completes(self, mock_service) -> None:
+        """Setting percent_complete=100 should auto-set status to COMPLETED."""
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(summary="Done", percent_complete=100)
+        result = service.create_task(req)
+        assert result.percent_complete == 100
+        assert result.status == "COMPLETED"
+        saved = mock_cal.save_todo.call_args[0][0]
+        assert "COMPLETED" in saved
+
+    def test_invalid_percent_rejected(self) -> None:
+        from app.caldav_models import CreateTaskRequest
+
+        with pytest.raises(ValueError, match="percent_complete must be between 0 and 100"):
+            CreateTaskRequest(summary="Bad", percent_complete=150)
+
+    def test_update_task_completed_auto_sets_percent(self) -> None:
+        """Setting status=COMPLETED should auto-set percent_complete=100."""
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Todo as ICalTodo
+
+        from app.caldav_models import CalDAVConfig, UpdateTaskRequest
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        todo = ICalTodo()
+        todo.add("uid", "pc-upd")
+        todo.add("dtstamp", datetime(2026, 1, 1, tzinfo=UTC))
+        todo.add("summary", "Task")
+        todo.add("status", "IN-PROCESS")
+        ical.add_component(todo)
+
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+
+        mock_target = MagicMock()
+        mock_target.data = ical.to_ical().decode("utf-8")
+        mock_target.save = MagicMock()
+        mock_target.icalendar_component = None
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        svc._calendars_cache = [mock_cal]
+        svc._find_by_uid = MagicMock(return_value=mock_target)
+
+        req = UpdateTaskRequest(status="COMPLETED")
+        result = svc.update_task("pc-upd", req)
+        assert result.percent_complete == 100
+        assert result.status == "COMPLETED"
+
+    def test_parse_task_percent_complete(self) -> None:
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Todo as ICalTodo
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        todo = ICalTodo()
+        todo.add("uid", "pc-parse")
+        todo.add("summary", "Task with percent")
+        todo.add("percent-complete", 75)
+        ical.add_component(todo)
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        mock_obj = MagicMock()
+        mock_obj.icalendar_component = ical
+        result = svc._parse_task(mock_obj, "Lyra", True)
+        assert result is not None
+        assert result.percent_complete == 75
+
+
+class TestTaskCategories:
+    """Tests for CATEGORIES on tasks."""
+
+    @pytest.fixture
+    def mock_service(self) -> tuple:
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        service = CalDAVService(config)
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_cal.save_todo = MagicMock()
+        service._calendars_cache = [mock_cal]
+        return service, mock_cal
+
+    def test_create_task_with_categories(self, mock_service) -> None:
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(summary="Tagged", categories=["Home", "Fix"])
+        result = service.create_task(req)
+        assert result.categories == ["Home", "Fix"]
+        saved = mock_cal.save_todo.call_args[0][0]
+        assert "CATEGORIES" in saved
+
+    def test_parse_task_categories(self) -> None:
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Todo as ICalTodo
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        todo = ICalTodo()
+        todo.add("uid", "tc-1")
+        todo.add("summary", "Tagged Task")
+        todo.add("categories", ["Work", "Bug"])
+        ical.add_component(todo)
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        mock_obj = MagicMock()
+        mock_obj.icalendar_component = ical
+        result = svc._parse_task(mock_obj, "Lyra", True)
+        assert result is not None
+        assert "Work" in result.categories
+        assert "Bug" in result.categories
+
+
+class TestTaskAlarms:
+    """Tests for VALARM support on tasks (VTODO)."""
+
+    @pytest.fixture
+    def mock_service(self) -> tuple:
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        service = CalDAVService(config)
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_cal.save_todo = MagicMock()
+        service._calendars_cache = [mock_cal]
+        return service, mock_cal
+
+    def test_default_alarm_with_due_datetime(self, mock_service) -> None:
+        """Task with a due datetime should get a DISPLAY alarm at 0 minutes."""
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(
+            summary="Task with due",
+            due="2026-01-20T17:00:00",
+        )
+        result = service.create_task(req)
+        assert len(result.alarms) == 1
+        assert result.alarms[0].trigger_minutes == 0
+        assert result.alarms[0].action == "DISPLAY"
+
+        saved = mock_cal.save_todo.call_args[0][0]
+        assert "BEGIN:VALARM" in saved
+        assert "TRIGGER" in saved
+
+    def test_default_alarm_with_date_only_due(self, mock_service) -> None:
+        """Task with a date-only due should get a DISPLAY alarm at noon."""
+        service, _mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(
+            summary="Date-only due",
+            due="2026-01-20",
+        )
+        result = service.create_task(req)
+        assert len(result.alarms) == 1
+        assert result.alarms[0].trigger_minutes == 0
+
+    def test_no_default_alarm_without_due(self, mock_service) -> None:
+        """Task without a due date should not get a default alarm."""
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(summary="No due")
+        result = service.create_task(req)
+        assert len(result.alarms) == 0
+        saved = mock_cal.save_todo.call_args[0][0]
+        assert "VALARM" not in saved
+
+    def test_no_alarm_when_disabled(self, mock_service) -> None:
+        service, _mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(
+            summary="Silent",
+            due="2026-01-20T17:00:00",
+            enable_alarms=False,
+        )
+        result = service.create_task(req)
+        assert len(result.alarms) == 0
+
+    def test_custom_task_alarms(self, mock_service) -> None:
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(
+            summary="Custom alarm task",
+            due="2026-01-20T17:00:00",
+            alarms=[
+                AlarmSpec(trigger_minutes=-30, description="Prep"),
+                AlarmSpec(trigger_minutes=0, action="AUDIO"),
+            ],
+        )
+        result = service.create_task(req)
+        assert len(result.alarms) == 2
+        assert result.alarms[0].trigger_minutes == -30
+        assert result.alarms[1].action == "AUDIO"
+
+        saved = mock_cal.save_todo.call_args[0][0]
+        assert saved.count("BEGIN:VALARM") == 2
+
+    def test_parse_task_with_alarm(self) -> None:
+        from icalendar import Alarm as ICalAlarm
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Todo as ICalTodo
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        todo = ICalTodo()
+        todo.add("uid", "ta-1")
+        todo.add("summary", "Task with alarm")
+        todo.add("due", datetime(2026, 1, 20, 17, 0, tzinfo=UTC))
+
+        alarm = ICalAlarm()
+        alarm.add("action", "DISPLAY")
+        alarm.add("trigger", timedelta(minutes=-15))
+        alarm.add("description", "Task reminder")
+        todo.add_component(alarm)
+
+        ical.add_component(todo)
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        mock_obj = MagicMock()
+        mock_obj.icalendar_component = ical
+        result = svc._parse_task(mock_obj, "Lyra", True)
+        assert result is not None
+        assert len(result.alarms) == 1
+        assert result.alarms[0].trigger_minutes == -15
+        assert result.alarms[0].description == "Task reminder"
+
+    def test_update_task_add_alarm(self) -> None:
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Todo as ICalTodo
+
+        from app.caldav_models import CalDAVConfig, UpdateTaskRequest
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        todo = ICalTodo()
+        todo.add("uid", "ta-upd")
+        todo.add("dtstamp", datetime(2026, 1, 1, tzinfo=UTC))
+        todo.add("summary", "Task")
+        todo.add("status", "NEEDS-ACTION")
+        ical.add_component(todo)
+
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+
+        mock_target = MagicMock()
+        mock_target.data = ical.to_ical().decode("utf-8")
+        mock_target.save = MagicMock()
+        mock_target.icalendar_component = None
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        svc._calendars_cache = [mock_cal]
+        svc._find_by_uid = MagicMock(return_value=mock_target)
+
+        req = UpdateTaskRequest(
+            alarms=[AlarmSpec(trigger_minutes=-10)],
+        )
+        result = svc.update_task("ta-upd", req)
+        assert len(result.alarms) == 1
+        assert result.alarms[0].trigger_minutes == -10
+
+    def test_update_task_remove_alarms(self) -> None:
+        from icalendar import Alarm as ICalAlarm
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Todo as ICalTodo
+
+        from app.caldav_models import CalDAVConfig, UpdateTaskRequest
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        todo = ICalTodo()
+        todo.add("uid", "ta-rm")
+        todo.add("dtstamp", datetime(2026, 1, 1, tzinfo=UTC))
+        todo.add("summary", "Task")
+        alarm = ICalAlarm()
+        alarm.add("action", "DISPLAY")
+        alarm.add("trigger", timedelta(minutes=-5))
+        todo.add_component(alarm)
+        ical.add_component(todo)
+
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+
+        mock_target = MagicMock()
+        mock_target.data = ical.to_ical().decode("utf-8")
+        mock_target.save = MagicMock()
+        mock_target.icalendar_component = None
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        svc._calendars_cache = [mock_cal]
+        svc._find_by_uid = MagicMock(return_value=mock_target)
+
+        req = UpdateTaskRequest(enable_alarms=False)
+        result = svc.update_task("ta-rm", req)
+        assert len(result.alarms) == 0
