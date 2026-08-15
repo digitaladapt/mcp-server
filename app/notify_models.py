@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 # Color palette shared across all providers.
 # Each color maps to a Discord embed color integer and an ntfy
@@ -33,14 +33,70 @@ Level = Literal["info", "notice", "critical", "emergency"]
 LEVEL_ORDER: list[str] = ["info", "notice", "critical", "emergency"]
 
 
+# --------------------------------------------------------------------------- #
+# Dynamic channel choices (populated by init_notify_registry at startup)
+# --------------------------------------------------------------------------- #
+
+_channel_choices: list[str] = []
+
+
+def _inject_channel_enum(schema: dict) -> None:
+    """json_schema_extra callable: inject dynamic channel enum into items."""
+    if _channel_choices:
+        schema["items"] = {"type": "string", "enum": list(_channel_choices)}
+
+
 class NotifyRequest(BaseModel):
-    """Request payload for POST /notify."""
+    """Request payload for POST /notify.
+
+    Invalid ``color`` values are silently ignored (treated as if not
+    provided).  Invalid ``level`` values fall back to ``"notice"``.
+    Invalid ``channel`` names are dropped; if none remain, the request
+    is sent to all providers (``"all"``).
+    """
 
     message: str
     title: str | None = None
     level: Level = "notice"
     color: ColorName | None = None
-    channels: list[str] | None = None
+    channels: list[str] | None = Field(
+        default=["all"],
+        json_schema_extra=_inject_channel_enum,
+    )
+
+    @field_validator("color", mode="before")
+    @classmethod
+    def normalize_color(cls, v: object) -> str | None:
+        """Silently ignore invalid colors (treat as if not provided)."""
+        if v is None:
+            return None
+        if isinstance(v, str) and v in COLOR_MAP:
+            return v
+        return None
+
+    @field_validator("level", mode="before")
+    @classmethod
+    def normalize_level(cls, v: object) -> str:
+        """Fall back to default 'notice' for invalid levels."""
+        if isinstance(v, str) and v in LEVEL_ORDER:
+            return v
+        return "notice"
+
+    @field_validator("channels", mode="before")
+    @classmethod
+    def normalize_channels(cls, v: object) -> list[str]:
+        """Drop invalid channel names; fall back to ['all'] if none remain."""
+        if v is None or v == []:
+            return ["all"]
+        if isinstance(v, list):
+            if _channel_choices:
+                valid = set(_channel_choices)
+                filtered = [ch for ch in v if isinstance(ch, str) and ch in valid]
+                return filtered if filtered else ["all"]
+            # No choices configured (e.g. in tests before init) — pass through.
+            return v
+        # Non-list, non-None — fall back to "all".
+        return ["all"]
 
     @field_validator("message")
     @classmethod
@@ -48,6 +104,17 @@ class NotifyRequest(BaseModel):
         if not v.strip():
             raise ValueError("message must not be empty")
         return v
+
+    @classmethod
+    def set_channel_choices(cls, names: list[str]) -> None:
+        """Update the valid channel names for schema enum and validation.
+
+        Called by ``init_notify_registry()`` after providers are discovered.
+        If more than one provider is configured, ``"all"`` is appended to
+        the list so the LLM can explicitly broadcast to every provider.
+        """
+        _channel_choices.clear()
+        _channel_choices.extend(names)
 
 
 class NotifyResult(BaseModel):
