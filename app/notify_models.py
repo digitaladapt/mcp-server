@@ -11,15 +11,15 @@ from pydantic import BaseModel, Field, field_validator
 # named tag (e.g. "red_circle") that ntfy renders as emoji on
 # the client side.
 COLOR_MAP: dict[str, tuple[int, str]] = {
-    "red":    (0xE50000, "red_circle"),
-    "orange": (0xF97306, "orange_circle"),
-    "yellow": (0xFFFF14, "yellow_circle"),
-    "green":  (0x15B01A, "green_circle"),
-    "blue":   (0x0343DF, "blue_circle"),
-    "purple": (0x7E1E9C, "purple_circle"),
-    "brown":  (0x653700, "brown_circle"),
-    "black":  (0x000000, "black_circle"),
-    "white":  (0xFFFFFF, "white_circle"),
+    "red":    (0xE50000, "red_square"),
+    "orange": (0xF97306, "orange_square"),
+    "yellow": (0xFFFF14, "yellow_square"),
+    "green":  (0x15B01A, "green_square"),
+    "blue":   (0x0343DF, "blue_square"),
+    "purple": (0x7E1E9C, "purple_square"),
+    "brown":  (0x653700, "brown_square"),
+    "black":  (0x000000, "black_large_square"),
+    "white":  (0xFFFFFF, "white_large_square"),
 }
 
 COLOR_NAMES = list(COLOR_MAP.keys())
