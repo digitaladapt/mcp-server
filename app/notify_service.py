@@ -238,9 +238,9 @@ class NtfyProvider:
     the requested level is not configured, the provider falls back to
     the nearest lower configured level.
 
-    Color is conveyed via a colored circle emoji prefix (🔴, 🟠, etc.)
-    rather than an embed colour integer, since ntfy has no concept of
-    embed colours.
+    Color is conveyed via ntfy named tags (e.g. "red_circle") which
+    ntfy renders as emoji on the client side, rather than an embed
+    colour integer, since ntfy has no concept of embed colours.
     """
 
     def __init__(
@@ -374,7 +374,7 @@ class NtfyProvider:
         # Color is conveyed as an ntfy named tag (e.g. "red_circle").
         # ntfy renders these as emoji on the client side.
         if req.color:
-            payload["tags"] = [COLOR_MAP[req.color][2]]
+            payload["tags"] = [COLOR_MAP[req.color][1]]
 
         headers = self._build_auth_headers()
         headers["Content-Type"] = "application/json"

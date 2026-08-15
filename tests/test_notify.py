@@ -53,11 +53,9 @@ class TestNotifyModels:
         expected = {"red", "orange", "yellow", "green", "blue", "purple", "brown", "black", "white"}
         assert set(COLOR_MAP.keys()) == expected
 
-    def test_color_map_has_emoji_for_ntfy(self):
-        for color_int, emoji, ntfy_tag in COLOR_MAP.values():
+    def test_color_map_has_ntfy_tags(self):
+        for color_int, ntfy_tag in COLOR_MAP.values():
             assert isinstance(color_int, int)
-            assert isinstance(emoji, str)
-            assert len(emoji) > 0
             assert isinstance(ntfy_tag, str)
             assert ntfy_tag.endswith("_circle")
 
@@ -454,13 +452,13 @@ class TestNtfyProvider:
         call_args = mock_client.post.call_args
         payload = call_args.kwargs["json"]
         # Color is conveyed as ntfy named tag
-        assert payload["tags"] == [COLOR_MAP["red"][2]]  # red_circle
+        assert payload["tags"] == [COLOR_MAP["red"][1]]  # red_circle
         assert payload["title"] == "CI · my-server"
         assert payload["priority"] == 3
 
     @patch("app.notify_service.httpx.Client")
-    def test_color_emoji_used_not_integer(self, mock_client_cls):
-        """Verify the emoji from COLOR_MAP is used, not the integer."""
+    def test_color_tag_used_not_integer(self, mock_client_cls):
+        """Verify the ntfy tag from COLOR_MAP is used, not the integer."""
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_client = MagicMock()
@@ -477,7 +475,7 @@ class TestNtfyProvider:
         provider.send(req)
 
         payload = mock_client.post.call_args.kwargs["json"]
-        assert payload["tags"] == [COLOR_MAP["green"][2]]  # green_circle
+        assert payload["tags"] == [COLOR_MAP["green"][1]]  # green_circle
         assert isinstance(payload["tags"][0], str)
 
     @patch("app.notify_service.httpx.Client")
