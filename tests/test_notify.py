@@ -54,10 +54,12 @@ class TestNotifyModels:
         assert set(COLOR_MAP.keys()) == expected
 
     def test_color_map_has_emoji_for_ntfy(self):
-        for color_int, emoji in COLOR_MAP.values():
+        for color_int, emoji, ntfy_tag in COLOR_MAP.values():
             assert isinstance(color_int, int)
             assert isinstance(emoji, str)
             assert len(emoji) > 0
+            assert isinstance(ntfy_tag, str)
+            assert ntfy_tag.endswith("_circle")
 
     def test_level_order_is_ascending(self):
         assert LEVEL_ORDER == ["info", "notice", "critical", "emergency"]
@@ -422,12 +424,13 @@ class TestNtfyProvider:
         assert result.error is None
 
         call_args = mock_client.post.call_args
-        # URL should be base_url/topic
-        assert call_args.args[0] == "https://ntfy.example.com/myserver-notice"
-        # Message body is sent as raw content
-        assert call_args.kwargs["content"] == "Hello world"
-        # Priority header for notice level
-        assert call_args.kwargs["headers"]["Priority"] == "3"
+        # JSON publishing: POST to base URL, topic in payload
+        assert call_args.args[0] == "https://ntfy.example.com"
+        payload = call_args.kwargs["json"]
+        assert payload["topic"] == "myserver-notice"
+        assert payload["message"] == "Hello world"
+        # Priority for notice level
+        assert payload["priority"] == 3
 
     @patch("app.notify_service.httpx.Client")
     def test_send_with_color_and_title(self, mock_client_cls):
@@ -449,11 +452,11 @@ class TestNtfyProvider:
 
         assert result.success is True
         call_args = mock_client.post.call_args
-        headers = call_args.kwargs["headers"]
-        # Color is conveyed as emoji tag
-        assert headers["Tags"] == COLOR_MAP["red"][1]  # 🔴
-        assert headers["Title"] == "CI · my-server"
-        assert headers["Priority"] == "3"
+        payload = call_args.kwargs["json"]
+        # Color is conveyed as ntfy named tag
+        assert payload["tags"] == [COLOR_MAP["red"][2]]  # red_circle
+        assert payload["title"] == "CI · my-server"
+        assert payload["priority"] == 3
 
     @patch("app.notify_service.httpx.Client")
     def test_color_emoji_used_not_integer(self, mock_client_cls):
@@ -473,9 +476,9 @@ class TestNtfyProvider:
         req = NotifyRequest(message="Test", color="green")
         provider.send(req)
 
-        headers = mock_client.post.call_args.kwargs["headers"]
-        assert headers["Tags"] == COLOR_MAP["green"][1]  # 🟢
-        assert isinstance(headers["Tags"], str)
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["tags"] == [COLOR_MAP["green"][2]]  # green_circle
+        assert isinstance(payload["tags"][0], str)
 
     @patch("app.notify_service.httpx.Client")
     def test_send_without_color_has_no_tags(self, mock_client_cls):
@@ -494,8 +497,8 @@ class TestNtfyProvider:
         req = NotifyRequest(message="No color")
         provider.send(req)
 
-        headers = mock_client.post.call_args.kwargs["headers"]
-        assert "Tags" not in headers
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert "tags" not in payload
 
     @patch("app.notify_service.httpx.Client")
     def test_each_level_routes_to_correct_topic(self, mock_client_cls):
@@ -524,7 +527,9 @@ class TestNtfyProvider:
             req = NotifyRequest(message=f"Test {level}", level=level)
             provider.send(req)
             call_url = mock_client.post.call_args.args[0]
-            assert call_url == f"https://ntfy.example.com/{topics[level]}", \
+            assert call_url == "https://ntfy.example.com"
+            payload = mock_client.post.call_args.kwargs["json"]
+            assert payload["topic"] == topics[level], \
                 f"{level} should route to its own topic"
 
     @patch("app.notify_service.httpx.Client")
@@ -549,13 +554,13 @@ class TestNtfyProvider:
             topics=topics,
         )
 
-        expected_priorities = {"info": "2", "notice": "3", "critical": "4", "emergency": "5"}
+        expected_priorities = {"info": 2, "notice": 3, "critical": 4, "emergency": 5}
         for level in ("info", "notice", "critical", "emergency"):
             mock_client.post.reset_mock()
             req = NotifyRequest(message=f"Test {level}", level=level)
             provider.send(req)
-            headers = mock_client.post.call_args.kwargs["headers"]
-            assert headers["Priority"] == expected_priorities[level]
+            payload = mock_client.post.call_args.kwargs["json"]
+            assert payload["priority"] == expected_priorities[level]
 
     @patch("app.notify_service.httpx.Client")
     def test_emergency_falls_back_to_critical(self, mock_client_cls):
@@ -581,11 +586,12 @@ class TestNtfyProvider:
         provider.send(req)
 
         call_url = mock_client.post.call_args.args[0]
-        assert call_url == "https://ntfy.example.com/t-critical"
+        assert call_url == "https://ntfy.example.com"
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["topic"] == "t-critical"
         # Priority should be that of the resolved level (critical=4),
         # not the requested level (emergency=5).
-        headers = mock_client.post.call_args.kwargs["headers"]
-        assert headers["Priority"] == "4"
+        assert payload["priority"] == 4
 
     @patch("app.notify_service.httpx.Client")
     def test_critical_falls_back_to_notice(self, mock_client_cls):
@@ -610,7 +616,9 @@ class TestNtfyProvider:
         provider.send(req)
 
         call_url = mock_client.post.call_args.args[0]
-        assert call_url == "https://ntfy.example.com/t-notice"
+        assert call_url == "https://ntfy.example.com"
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["topic"] == "t-notice"
 
     @patch("app.notify_service.httpx.Client")
     def test_notice_falls_back_to_info(self, mock_client_cls):
@@ -632,7 +640,9 @@ class TestNtfyProvider:
         provider.send(req)
 
         call_url = mock_client.post.call_args.args[0]
-        assert call_url == "https://ntfy.example.com/t-info"
+        assert call_url == "https://ntfy.example.com"
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["topic"] == "t-info"
 
     @patch("app.notify_service.httpx.Client")
     def test_emergency_falls_back_all_the_way_to_info(self, mock_client_cls):
@@ -654,7 +664,9 @@ class TestNtfyProvider:
         provider.send(req)
 
         call_url = mock_client.post.call_args.args[0]
-        assert call_url == "https://ntfy.example.com/t-info"
+        assert call_url == "https://ntfy.example.com"
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["topic"] == "t-info"
 
     @patch("app.notify_service.httpx.Client")
     def test_default_level_is_notice(self, mock_client_cls):
@@ -679,7 +691,9 @@ class TestNtfyProvider:
         provider.send(req)
 
         call_url = mock_client.post.call_args.args[0]
-        assert call_url == "https://ntfy.example.com/t-notice"
+        assert call_url == "https://ntfy.example.com"
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["topic"] == "t-notice"
 
     @patch("app.notify_service.httpx.Client")
     def test_token_auth_header(self, mock_client_cls):
@@ -827,7 +841,9 @@ class TestNtfyProvider:
         provider.send(req)
 
         call_url = mock_client.post.call_args.args[0]
-        assert call_url == "https://ntfy.example.com/t-notice"
+        assert call_url == "https://ntfy.example.com"
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["topic"] == "t-notice"
 
     @patch("app.notify_service.httpx.Client")
     def test_markdown_passed_through_as_content(self, mock_client_cls):
@@ -848,8 +864,8 @@ class TestNtfyProvider:
         req = NotifyRequest(message=markdown_msg)
         provider.send(req)
 
-        content = mock_client.post.call_args.kwargs["content"]
-        assert content == markdown_msg
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert payload["message"] == markdown_msg
 
     @patch("app.notify_service.httpx.Client")
     def test_send_without_title_has_no_title_header(self, mock_client_cls):
@@ -868,8 +884,8 @@ class TestNtfyProvider:
         req = NotifyRequest(message="No title")
         provider.send(req)
 
-        headers = mock_client.post.call_args.kwargs["headers"]
-        assert "Title" not in headers
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert "title" not in payload
 
 
 # --------------------------------------------------------------------------- #

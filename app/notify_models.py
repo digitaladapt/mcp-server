@@ -9,16 +9,16 @@ from pydantic import BaseModel, field_validator
 # Color palette shared across all providers.
 # Each color maps to a Discord embed color integer and an emoji
 # for providers that use emojis (e.g. Ntfy) instead of colors.
-COLOR_MAP: dict[str, tuple[int, str]] = {
-    "red":    (0xE50000, "🔴"),
-    "orange": (0xF97306, "🟠"),
-    "yellow": (0xFFFF14, "🟡"),
-    "green":  (0x15B01A, "🟢"),
-    "blue":   (0x0343DF, "🔵"),
-    "purple": (0x7E1E9C, "🟣"),
-    "brown":  (0x653700, "🟤"),
-    "black":  (0x000000, "⚫"),
-    "white":  (0xFFFFFF, "⚪"),
+COLOR_MAP: dict[str, tuple[int, str, str]] = {
+    "red":    (0xE50000, "🔴", "red_circle"),
+    "orange": (0xF97306, "🟠", "orange_circle"),
+    "yellow": (0xFFFF14, "🟡", "yellow_circle"),
+    "green":  (0x15B01A, "🟢", "green_circle"),
+    "blue":   (0x0343DF, "🔵", "blue_circle"),
+    "purple": (0x7E1E9C, "🟣", "purple_circle"),
+    "brown":  (0x653700, "🟤", "brown_circle"),
+    "black":  (0x000000, "⚫", "black_circle"),
+    "white":  (0xFFFFFF, "⚪", "white_circle"),
 }
 
 COLOR_NAMES = list(COLOR_MAP.keys())
