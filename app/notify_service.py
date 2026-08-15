@@ -3,7 +3,7 @@
 Providers implement the NotifyProvider protocol.  The service fans out
 to all configured providers (or a filtered subset) and collects results.
 
-Discord is the first provider; Ntfy and others can be added later by
+Discord and Ntfy are built-in providers; others can be added by
 implementing the protocol and registering in _discover_providers().
 """
 
@@ -28,6 +28,23 @@ _DISCORD_ENV_KEYS: dict[str, str] = {
     "notice":    "DISCORD_NOTICE_HOOK",
     "critical":  "DISCORD_CRITICAL_HOOK",
     "emergency": "DISCORD_EMERGENCY_HOOK",
+}
+
+# Ntfy topic env vars, one per severity level.
+_NTFY_TOPIC_ENV_KEYS: dict[str, str] = {
+    "info":      "NTFY_INFO_TOPIC",
+    "notice":    "NTFY_NOTICE_TOPIC",
+    "critical":  "NTFY_CRITICAL_TOPIC",
+    "emergency": "NTFY_EMERGENCY_TOPIC",
+}
+
+# Map our severity levels to ntfy's 1–5 priority scale.
+# https://docs.ntfy.sh/publish/#message-priority
+_NTFY_PRIORITY: dict[str, int] = {
+    "info":      2,
+    "notice":    3,
+    "critical":  4,
+    "emergency": 5,
 }
 
 
@@ -210,6 +227,170 @@ class DiscordProvider:
 
 
 # --------------------------------------------------------------------------- #
+# Ntfy provider
+# --------------------------------------------------------------------------- #
+
+class NtfyProvider:
+    """Send notifications to an ntfy server (https://ntfy.sh).
+
+    Each severity level can publish to its own topic, or a single
+    topic can be shared by all levels.  Like Discord, if a topic for
+    the requested level is not configured, the provider falls back to
+    the nearest lower configured level.
+
+    Color is conveyed via a colored circle emoji prefix (🔴, 🟠, etc.)
+    rather than an embed colour integer, since ntfy has no concept of
+    embed colours.
+    """
+
+    def __init__(
+        self,
+        base_url: str,
+        topics: dict[str, str],
+        token: str | None = None,
+        username: str | None = None,
+        password: str | None = None,
+        title_suffix: str | None = None,
+    ) -> None:
+        self._base_url = base_url.rstrip("/")
+        self._topics: dict[str, str] = dict(topics)
+        self._token = token
+        self._username = username
+        self._password = password
+        self._title_suffix = title_suffix
+
+    @classmethod
+    def from_env(cls) -> NtfyProvider | None:
+        """Build from environment variables.  Returns None if not configured."""
+        base_url = os.environ.get("NTFY_URL", "").strip()
+        if not base_url:
+            return None
+
+        topics: dict[str, str] = {}
+        for level, env_key in _NTFY_TOPIC_ENV_KEYS.items():
+            topic = os.environ.get(env_key, "").strip()
+            if topic:
+                topics[level] = topic
+
+        if not topics:
+            return None
+
+        token = os.environ.get("NTFY_TOKEN", "").strip() or None
+        username = os.environ.get("NTFY_USERNAME", "").strip() or None
+        password = os.environ.get("NTFY_PASSWORD", "").strip() or None
+        title_suffix = os.environ.get("NTFY_TITLE_SUFFIX", "").strip() or None
+
+        return cls(
+            base_url=base_url,
+            topics=topics,
+            token=token,
+            username=username,
+            password=password,
+            title_suffix=title_suffix,
+        )
+
+    @property
+    def name(self) -> str:
+        return "ntfy"
+
+    @property
+    def is_configured(self) -> bool:
+        return bool(self._base_url and self._topics)
+
+    def _resolve_topic(self, level: str) -> str | None:
+        """Resolve a topic for the given level.
+
+        Falls back to the nearest lower configured level if the
+        exact level is not available (same logic as Discord).
+        """
+        if level in self._topics:
+            return self._topics[level]
+
+        idx = LEVEL_ORDER.index(level)
+        for candidate in reversed(LEVEL_ORDER[:idx]):
+            if candidate in self._topics:
+                return self._topics[candidate]
+
+        # Fall back to the lowest configured level.
+        for candidate in LEVEL_ORDER:
+            if candidate in self._topics:
+                return self._topics[candidate]
+
+        return None
+
+    def _build_headers(self, req: NotifyRequest, topic_level: str) -> dict[str, str]:
+        """Build the ntfy HTTP headers for a publish request."""
+        headers: dict[str, str] = {
+            "Priority": str(_NTFY_PRIORITY[topic_level]),
+        }
+
+        if req.title:
+            title = req.title
+            if self._title_suffix:
+                title = f"{title} {self._title_suffix}"
+            headers["Title"] = title
+
+        # Color is conveyed as a colored circle emoji tag.
+        if req.color:
+            emoji = COLOR_MAP[req.color][1]
+            headers["Tags"] = emoji
+
+        # Auth: prefer bearer token, fall back to basic auth.
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        elif self._username and self._password is not None:
+            import base64
+            cred = base64.b64encode(
+                f"{self._username}:{self._password}".encode()
+            ).decode()
+            headers["Authorization"] = f"Basic {cred}"
+
+        return headers
+
+    def send(self, req: NotifyRequest) -> NotifyResult:
+        """Send notification to ntfy."""
+        topic = self._resolve_topic(req.level)
+        if not topic:
+            return NotifyResult(
+                provider=self.name,
+                success=False,
+                error="No ntfy topic configured",
+            )
+
+        # The level we resolved to (may differ from req.level due to
+        # fallback) determines the ntfy priority.
+        resolved_level = req.level
+        if topic != self._topics.get(req.level):
+            for lvl, t in self._topics.items():
+                if t == topic:
+                    resolved_level = lvl
+                    break
+
+        url = f"{self._base_url}/{topic}"
+        headers = self._build_headers(req, resolved_level)
+
+        try:
+            with httpx.Client(timeout=httpx.Timeout(10.0, connect=5.0)) as client:
+                resp = client.post(url, content=req.message, headers=headers)
+
+                if resp.status_code >= 400:
+                    return NotifyResult(
+                        provider=self.name,
+                        success=False,
+                        error=f"ntfy API error {resp.status_code}: {resp.text[:200]}",
+                    )
+
+        except httpx.HTTPError as exc:
+            return NotifyResult(
+                provider=self.name,
+                success=False,
+                error=f"HTTP error: {exc}",
+            )
+
+        return NotifyResult(provider=self.name, success=True)
+
+
+# --------------------------------------------------------------------------- #
 # Provider registry
 # --------------------------------------------------------------------------- #
 
@@ -267,7 +448,9 @@ def _discover_providers() -> list[NotifyProvider]:
     if discord is not None:
         providers.append(discord)
 
-    # Future: NtfyProvider.from_env(), etc.
+    ntfy = NtfyProvider.from_env()
+    if ntfy is not None:
+        providers.append(ntfy)
 
     return providers
 

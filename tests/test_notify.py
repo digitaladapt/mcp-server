@@ -12,6 +12,7 @@ from app.notify_models import COLOR_MAP, LEVEL_ORDER, NotifyRequest, NotifyResul
 from app.notify_service import (
     DiscordProvider,
     NotifyRegistry,
+    NtfyProvider,
     reset_notify_registry,
 )
 
@@ -337,6 +338,667 @@ class TestDiscordProvider:
         assert result.success is True
         # Should have been called at least twice (original + overflow)
         assert mock_client.post.call_count >= 2
+
+
+# --------------------------------------------------------------------------- #
+# NtfyProvider tests
+# --------------------------------------------------------------------------- #
+
+class TestNtfyProvider:
+    def test_from_env_returns_none_when_not_configured(self, monkeypatch):
+        monkeypatch.delenv("NTFY_URL", raising=False)
+        for key in ("NTFY_INFO_TOPIC", "NTFY_NOTICE_TOPIC", "NTFY_CRITICAL_TOPIC", "NTFY_EMERGENCY_TOPIC"):
+            monkeypatch.delenv(key, raising=False)
+        assert NtfyProvider.from_env() is None
+
+    def test_from_env_returns_none_without_topics(self, monkeypatch):
+        """URL set but no topics → not configured."""
+        monkeypatch.setenv("NTFY_URL", "https://ntfy.example.com")
+        for key in ("NTFY_INFO_TOPIC", "NTFY_NOTICE_TOPIC", "NTFY_CRITICAL_TOPIC", "NTFY_EMERGENCY_TOPIC"):
+            monkeypatch.delenv(key, raising=False)
+        assert NtfyProvider.from_env() is None
+
+    def test_from_env_creates_provider(self, monkeypatch):
+        monkeypatch.setenv("NTFY_URL", "https://ntfy.example.com")
+        monkeypatch.setenv("NTFY_INFO_TOPIC", "myserver-info")
+        monkeypatch.setenv("NTFY_NOTICE_TOPIC", "myserver-notice")
+        monkeypatch.setenv("NTFY_CRITICAL_TOPIC", "myserver-critical")
+        monkeypatch.setenv("NTFY_EMERGENCY_TOPIC", "myserver-emergency")
+        monkeypatch.setenv("NTFY_TOKEN", "tk_test123")
+        monkeypatch.setenv("NTFY_TITLE_SUFFIX", "· my-server")
+
+        provider = NtfyProvider.from_env()
+        assert provider is not None
+        assert provider.name == "ntfy"
+        assert provider.is_configured is True
+        assert len(provider._topics) == 4
+        assert provider._token == "tk_test123"
+
+    def test_from_env_basic_auth(self, monkeypatch):
+        monkeypatch.setenv("NTFY_URL", "https://ntfy.example.com")
+        monkeypatch.setenv("NTFY_INFO_TOPIC", "myserver-info")
+        monkeypatch.setenv("NTFY_USERNAME", "andrew")
+        monkeypatch.setenv("NTFY_PASSWORD", "secret")
+        monkeypatch.delenv("NTFY_TOKEN", raising=False)
+
+        provider = NtfyProvider.from_env()
+        assert provider is not None
+        assert provider._username == "andrew"
+        assert provider._password == "secret"
+        assert provider._token is None
+
+    def test_from_env_single_topic(self, monkeypatch):
+        """Only info topic configured — all levels fall back to it."""
+        monkeypatch.setenv("NTFY_URL", "https://ntfy.example.com")
+        monkeypatch.setenv("NTFY_INFO_TOPIC", "myserver-info")
+        monkeypatch.delenv("NTFY_NOTICE_TOPIC", raising=False)
+        monkeypatch.delenv("NTFY_CRITICAL_TOPIC", raising=False)
+        monkeypatch.delenv("NTFY_EMERGENCY_TOPIC", raising=False)
+
+        provider = NtfyProvider.from_env()
+        assert provider is not None
+        assert len(provider._topics) == 1
+        assert "info" in provider._topics
+
+    @patch("app.notify_service.httpx.Client")
+    def test_send_basic_message(self, mock_client_cls):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "myserver-notice"},
+        )
+        req = NotifyRequest(message="Hello world")
+        result = provider.send(req)
+
+        assert result.success is True
+        assert result.provider == "ntfy"
+        assert result.error is None
+
+        call_args = mock_client.post.call_args
+        # URL should be base_url/topic
+        assert call_args.args[0] == "https://ntfy.example.com/myserver-notice"
+        # Message body is sent as raw content
+        assert call_args.kwargs["content"] == "Hello world"
+        # Priority header for notice level
+        assert call_args.kwargs["headers"]["Priority"] == "3"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_send_with_color_and_title(self, mock_client_cls):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "myserver-notice"},
+            title_suffix="· my-server",
+        )
+        req = NotifyRequest(message="Deploy failed", title="CI", color="red")
+        result = provider.send(req)
+
+        assert result.success is True
+        call_args = mock_client.post.call_args
+        headers = call_args.kwargs["headers"]
+        # Color is conveyed as emoji tag
+        assert headers["Tags"] == COLOR_MAP["red"][1]  # 🔴
+        assert headers["Title"] == "CI · my-server"
+        assert headers["Priority"] == "3"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_color_emoji_used_not_integer(self, mock_client_cls):
+        """Verify the emoji from COLOR_MAP is used, not the integer."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "myserver-notice"},
+        )
+        req = NotifyRequest(message="Test", color="green")
+        provider.send(req)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["Tags"] == COLOR_MAP["green"][1]  # 🟢
+        assert isinstance(headers["Tags"], str)
+
+    @patch("app.notify_service.httpx.Client")
+    def test_send_without_color_has_no_tags(self, mock_client_cls):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "myserver-notice"},
+        )
+        req = NotifyRequest(message="No color")
+        provider.send(req)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert "Tags" not in headers
+
+    @patch("app.notify_service.httpx.Client")
+    def test_each_level_routes_to_correct_topic(self, mock_client_cls):
+        """All four levels route to their own topic when configured."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        topics = {
+            "info":      "myserver-info",
+            "notice":    "myserver-notice",
+            "critical":  "myserver-critical",
+            "emergency": "myserver-emergency",
+        }
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics=topics,
+        )
+
+        for level in ("info", "notice", "critical", "emergency"):
+            mock_client.post.reset_mock()
+            req = NotifyRequest(message=f"Test {level}", level=level)
+            provider.send(req)
+            call_url = mock_client.post.call_args.args[0]
+            assert call_url == f"https://ntfy.example.com/{topics[level]}", \
+                f"{level} should route to its own topic"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_priority_header_matches_level(self, mock_client_cls):
+        """Each level maps to the correct ntfy priority (2-5)."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        topics = {
+            "info":      "t-info",
+            "notice":    "t-notice",
+            "critical":  "t-critical",
+            "emergency": "t-emergency",
+        }
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics=topics,
+        )
+
+        expected_priorities = {"info": "2", "notice": "3", "critical": "4", "emergency": "5"}
+        for level in ("info", "notice", "critical", "emergency"):
+            mock_client.post.reset_mock()
+            req = NotifyRequest(message=f"Test {level}", level=level)
+            provider.send(req)
+            headers = mock_client.post.call_args.kwargs["headers"]
+            assert headers["Priority"] == expected_priorities[level]
+
+    @patch("app.notify_service.httpx.Client")
+    def test_emergency_falls_back_to_critical(self, mock_client_cls):
+        """Emergency falls back to critical when emergency topic is missing."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        topics = {
+            "info":     "t-info",
+            "notice":   "t-notice",
+            "critical": "t-critical",
+        }
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics=topics,
+        )
+        req = NotifyRequest(message="Emergency!", level="emergency")
+        provider.send(req)
+
+        call_url = mock_client.post.call_args.args[0]
+        assert call_url == "https://ntfy.example.com/t-critical"
+        # Priority should be that of the resolved level (critical=4),
+        # not the requested level (emergency=5).
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["Priority"] == "4"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_critical_falls_back_to_notice(self, mock_client_cls):
+        """Critical falls back to notice when critical topic is missing."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        topics = {
+            "info":   "t-info",
+            "notice": "t-notice",
+        }
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics=topics,
+        )
+        req = NotifyRequest(message="Critical!", level="critical")
+        provider.send(req)
+
+        call_url = mock_client.post.call_args.args[0]
+        assert call_url == "https://ntfy.example.com/t-notice"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_notice_falls_back_to_info(self, mock_client_cls):
+        """Notice falls back to info when notice topic is missing."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        topics = {"info": "t-info"}
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics=topics,
+        )
+        req = NotifyRequest(message="Notice!", level="notice")
+        provider.send(req)
+
+        call_url = mock_client.post.call_args.args[0]
+        assert call_url == "https://ntfy.example.com/t-info"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_emergency_falls_back_all_the_way_to_info(self, mock_client_cls):
+        """Emergency falls back to the lowest available level."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        topics = {"info": "t-info"}
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics=topics,
+        )
+        req = NotifyRequest(message="Emergency!", level="emergency")
+        provider.send(req)
+
+        call_url = mock_client.post.call_args.args[0]
+        assert call_url == "https://ntfy.example.com/t-info"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_default_level_is_notice(self, mock_client_cls):
+        """Default level is notice, routes to notice topic."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        topics = {
+            "info":   "t-info",
+            "notice": "t-notice",
+        }
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics=topics,
+        )
+        req = NotifyRequest(message="Normal message")
+        provider.send(req)
+
+        call_url = mock_client.post.call_args.args[0]
+        assert call_url == "https://ntfy.example.com/t-notice"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_token_auth_header(self, mock_client_cls):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "t-notice"},
+            token="tk_secret123",
+        )
+        req = NotifyRequest(message="Hello")
+        provider.send(req)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer tk_secret123"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_basic_auth_header(self, mock_client_cls):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "t-notice"},
+            username="andrew",
+            password="secret",
+        )
+        req = NotifyRequest(message="Hello")
+        provider.send(req)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["Authorization"].startswith("Basic ")
+
+    @patch("app.notify_service.httpx.Client")
+    def test_no_auth_header_when_not_configured(self, mock_client_cls):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "t-notice"},
+        )
+        req = NotifyRequest(message="Hello")
+        provider.send(req)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert "Authorization" not in headers
+
+    @patch("app.notify_service.httpx.Client")
+    def test_token_auth_preferred_over_basic(self, mock_client_cls):
+        """When both token and basic auth are configured, token wins."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "t-notice"},
+            token="tk_secret",
+            username="andrew",
+            password="secret",
+        )
+        req = NotifyRequest(message="Hello")
+        provider.send(req)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer tk_secret"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_api_error_returns_failure(self, mock_client_cls):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 403
+        mock_resp.text = '{"error": "Forbidden"}'
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "t-notice"},
+        )
+        req = NotifyRequest(message="Hello")
+        result = provider.send(req)
+
+        assert result.success is False
+        assert "403" in result.error
+
+    @patch("app.notify_service.httpx.Client")
+    def test_http_exception_returns_failure(self, mock_client_cls):
+        import httpx
+        mock_client = MagicMock()
+        mock_client.post.side_effect = httpx.ConnectError("Connection refused")
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "t-notice"},
+        )
+        req = NotifyRequest(message="Hello")
+        result = provider.send(req)
+
+        assert result.success is False
+        assert "HTTP error" in result.error
+
+    @patch("app.notify_service.httpx.Client")
+    def test_base_url_trailing_slash_stripped(self, mock_client_cls):
+        """Trailing slash in base URL should be stripped."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com/",
+            topics={"notice": "t-notice"},
+        )
+        req = NotifyRequest(message="Hello")
+        provider.send(req)
+
+        call_url = mock_client.post.call_args.args[0]
+        assert call_url == "https://ntfy.example.com/t-notice"
+
+    @patch("app.notify_service.httpx.Client")
+    def test_markdown_passed_through_as_content(self, mock_client_cls):
+        """Message body is sent as raw content, no wrapping."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        markdown_msg = "**Bold** and `code` and [link](https://example.com)"
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "t-notice"},
+        )
+        req = NotifyRequest(message=markdown_msg)
+        provider.send(req)
+
+        content = mock_client.post.call_args.kwargs["content"]
+        assert content == markdown_msg
+
+    @patch("app.notify_service.httpx.Client")
+    def test_send_without_title_has_no_title_header(self, mock_client_cls):
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_client = MagicMock()
+        mock_client.post.return_value = mock_resp
+        mock_client.__enter__ = MagicMock(return_value=mock_client)
+        mock_client.__exit__ = MagicMock(return_value=False)
+        mock_client_cls.return_value = mock_client
+
+        provider = NtfyProvider(
+            base_url="https://ntfy.example.com",
+            topics={"notice": "t-notice"},
+        )
+        req = NotifyRequest(message="No title")
+        provider.send(req)
+
+        headers = mock_client.post.call_args.kwargs["headers"]
+        assert "Title" not in headers
+
+
+# --------------------------------------------------------------------------- #
+# Multi-provider (Discord + Ntfy) integration tests
+# --------------------------------------------------------------------------- #
+
+@pytest.fixture
+def dual_notify_client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+    """A TestClient with both Discord and Ntfy configured (mocked HTTP)."""
+    monkeypatch.setenv("DISCORD_INFO_HOOK", "https://discord.com/api/webhooks/123/info?wait=true")
+    monkeypatch.setenv("DISCORD_NOTICE_HOOK", "https://discord.com/api/webhooks/123/notice?wait=true")
+    monkeypatch.setenv("DISCORD_CRITICAL_HOOK", "https://discord.com/api/webhooks/123/critical?wait=true")
+    monkeypatch.setenv("DISCORD_EMERGENCY_HOOK", "https://discord.com/api/webhooks/123/emergency?wait=true")
+
+    monkeypatch.setenv("NTFY_URL", "https://ntfy.example.com")
+    monkeypatch.setenv("NTFY_INFO_TOPIC", "myserver-info")
+    monkeypatch.setenv("NTFY_NOTICE_TOPIC", "myserver-notice")
+    monkeypatch.setenv("NTFY_CRITICAL_TOPIC", "myserver-critical")
+    monkeypatch.setenv("NTFY_EMERGENCY_TOPIC", "myserver-emergency")
+    monkeypatch.setenv("NTFY_TOKEN", "tk_test123")
+
+    monkeypatch.delenv("CALDAV_URL", raising=False)
+    monkeypatch.delenv("ICS_CALENDAR_URL", raising=False)
+    monkeypatch.delenv("GITEA_URL", raising=False)
+
+    from app.main import create_app
+    app = create_app()
+    with TestClient(app) as client:
+        yield client
+
+    reset_notify_registry()
+
+
+class TestDualProviderEndpoint:
+    def test_both_providers_receive_notification(self, dual_notify_client):
+        with patch("app.notify_service.httpx.Client") as mock_client_cls:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_client = MagicMock()
+            mock_client.post.return_value = mock_resp
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
+            mock_client.__exit__ = MagicMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            resp = dual_notify_client.post("/notify", json={"message": "Hello both"})
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["sent"] is True
+        assert len(data["results"]) == 2
+        provider_names = {r["provider"] for r in data["results"]}
+        assert provider_names == {"discord", "ntfy"}
+
+    def test_channel_filter_ntfy_only(self, dual_notify_client):
+        with patch("app.notify_service.httpx.Client") as mock_client_cls:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_client = MagicMock()
+            mock_client.post.return_value = mock_resp
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
+            mock_client.__exit__ = MagicMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            resp = dual_notify_client.post("/notify", json={
+                "message": "Ntfy only",
+                "channels": ["ntfy"],
+            })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["provider"] == "ntfy"
+        assert data["results"][0]["success"] is True
+
+    def test_channel_filter_discord_only(self, dual_notify_client):
+        with patch("app.notify_service.httpx.Client") as mock_client_cls:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 200
+            mock_client = MagicMock()
+            mock_client.post.return_value = mock_resp
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
+            mock_client.__exit__ = MagicMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            resp = dual_notify_client.post("/notify", json={
+                "message": "Discord only",
+                "channels": ["discord"],
+            })
+
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data["results"]) == 1
+        assert data["results"][0]["provider"] == "discord"
+
+    def test_ntfy_only_configured(self, monkeypatch):
+        """When only Ntfy is configured (no Discord), it works standalone."""
+        monkeypatch.setenv("NTFY_URL", "https://ntfy.example.com")
+        monkeypatch.setenv("NTFY_INFO_TOPIC", "myserver-info")
+        monkeypatch.setenv("NTFY_NOTICE_TOPIC", "myserver-notice")
+
+        # Ensure Discord is not configured
+        for key in ("DISCORD_INFO_HOOK", "DISCORD_NOTICE_HOOK", "DISCORD_CRITICAL_HOOK", "DISCORD_EMERGENCY_HOOK"):
+            monkeypatch.delenv(key, raising=False)
+
+        monkeypatch.delenv("CALDAV_URL", raising=False)
+        monkeypatch.delenv("ICS_CALENDAR_URL", raising=False)
+        monkeypatch.delenv("GITEA_URL", raising=False)
+
+        from app.main import create_app
+        app = create_app()
+        with TestClient(app) as client:
+            with patch("app.notify_service.httpx.Client") as mock_client_cls:
+                mock_resp = MagicMock()
+                mock_resp.status_code = 200
+                mock_client = MagicMock()
+                mock_client.post.return_value = mock_resp
+                mock_client.__enter__ = MagicMock(return_value=mock_client)
+                mock_client.__exit__ = MagicMock(return_value=False)
+                mock_client_cls.return_value = mock_client
+
+                resp = client.post("/notify", json={"message": "Ntfy standalone"})
+
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["sent"] is True
+            assert len(data["results"]) == 1
+            assert data["results"][0]["provider"] == "ntfy"
+
+        reset_notify_registry()
 
 
 # --------------------------------------------------------------------------- #

@@ -223,7 +223,8 @@ def create_app() -> FastAPI:
         raise RuntimeError(
             "No features configured.  Set at least one of: "
             "CALDAV_URL, ICS_CALENDAR_URL, GITEA_URL, DISCORD_INFO_HOOK, "
-            "or ensure registry command YAML files are present, or a DISCORD_*_HOOK is set."
+            "NTFY_URL + NTFY_INFO_TOPIC, or ensure registry command YAML "
+            "files are present."
         )
 
     app = FastAPI(
