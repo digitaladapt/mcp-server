@@ -426,9 +426,15 @@ class NotifyRegistry:
         return [p.name for p in self._providers]
 
     def send(self, req: NotifyRequest) -> list[NotifyResult]:
-        """Fan out to all providers (or filtered subset)."""
+        """Fan out to all providers (or filtered subset).
+
+        The ``"all"`` channel (the default) broadcasts to every
+        configured provider.  Any other channel name selects only
+        the matching provider.  Invalid names are dropped by
+        ``NotifyRequest.normalize_channels`` before reaching here.
+        """
         targets = self._providers
-        if req.channels:
+        if req.channels and "all" not in req.channels:
             targets = [p for p in self._providers if p.name in req.channels]
 
         results: list[NotifyResult] = []
@@ -472,12 +478,27 @@ notify_registry = NotifyRegistry()
 def reset_notify_registry() -> None:
     """Clear the global notify registry (used in tests)."""
     notify_registry.clear()
+    # Reset channel choices so tests start from a clean state.
+    NotifyRequest.set_channel_choices([])
 
 
 def init_notify_registry() -> bool:
-    """Discover and register providers.  Returns True if any configured."""
+    """Discover and register providers.  Returns True if any configured.
+
+    Also updates ``NotifyRequest.set_channel_choices`` so the
+    OpenAPI schema exposes a proper enum of valid channel names.
+    When more than one provider is configured, ``"all"`` is added
+    as an explicit option for broadcasting to every provider.
+    """
     reset_notify_registry()
     providers = _discover_providers()
     for p in providers:
         notify_registry.register(p)
+
+    # Update the channel enum for the schema and validator.
+    names = notify_registry.provider_names
+    if len(names) > 1:
+        names = [*names, "all"]
+    NotifyRequest.set_channel_choices(names)
+
     return notify_registry.has_providers

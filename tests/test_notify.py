@@ -27,7 +27,48 @@ class TestNotifyModels:
         assert req.level == "notice"
         assert req.title is None
         assert req.color is None
-        assert req.channels is None
+        assert req.channels == ["all"]
+
+    def test_invalid_color_ignored(self):
+        """Invalid color is silently ignored (treated as None)."""
+        req = NotifyRequest(message="Hello", color="teal")
+        assert req.color is None
+        assert req.message == "Hello"
+
+    def test_invalid_level_defaults_to_notice(self):
+        """Invalid level falls back to 'notice'."""
+        req = NotifyRequest(message="Hello", level="urgent")
+        assert req.level == "notice"
+
+    def test_invalid_channel_falls_back_to_all(self):
+        """Invalid channel names are dropped; empty list falls back to ['all']."""
+        # No channel choices set — pass through as-is.
+        req = NotifyRequest(message="Hello", channels=["nonexistent"])
+        assert req.channels == ["nonexistent"]
+
+    def test_set_channel_choices(self):
+        """set_channel_choices populates the validator's valid set."""
+        try:
+            NotifyRequest.set_channel_choices(["discord", "ntfy", "all"])
+
+            # Valid channel passes through.
+            req = NotifyRequest(message="Hi", channels=["discord"])
+            assert req.channels == ["discord"]
+
+            # Invalid channel is filtered out, falls back to ['all'].
+            req = NotifyRequest(message="Hi", channels=["nonexistent"])
+            assert req.channels == ["all"]
+
+            # Mix of valid and invalid — only valid survive.
+            req = NotifyRequest(message="Hi", channels=["discord", "nonexistent"])
+            assert req.channels == ["discord"]
+
+            # Empty list falls back to ['all'].
+            req = NotifyRequest(message="Hi", channels=[])
+            assert req.channels == ["all"]
+        finally:
+            # Reset to avoid leaking state into other tests.
+            NotifyRequest.set_channel_choices([])
 
     def test_full_request(self):
         req = NotifyRequest(
@@ -1155,13 +1196,43 @@ class TestNotifyEndpoint:
         resp = notify_client.post("/notify", json={"message": ""})
         assert resp.status_code == 422
 
-    def test_notify_invalid_color_rejected(self, notify_client):
-        resp = notify_client.post("/notify", json={"message": "Hi", "color": "teal"})
-        assert resp.status_code == 422
+    def test_notify_invalid_color_ignored(self, notify_client):
+        """Invalid color is silently ignored — request succeeds, color absent from payload."""
+        with patch("app.notify_service.httpx.Client") as mock_client_cls:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 204
+            mock_client = MagicMock()
+            mock_client.post.return_value = mock_resp
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
+            mock_client.__exit__ = MagicMock(return_value=False)
+            mock_client_cls.return_value = mock_client
 
-    def test_notify_invalid_level_rejected(self, notify_client):
-        resp = notify_client.post("/notify", json={"message": "Hi", "level": "urgent"})
-        assert resp.status_code == 422
+            resp = notify_client.post("/notify", json={"message": "Hi", "color": "teal"})
+
+        assert resp.status_code == 200
+        assert resp.json()["sent"] is True
+        # Color should not appear in the Discord embed payload.
+        payload = mock_client.post.call_args.kwargs["json"]
+        assert "color" not in payload["embeds"][0]
+
+    def test_notify_invalid_level_defaults_to_notice(self, notify_client):
+        """Invalid level falls back to 'notice' — request succeeds with notice behavior."""
+        with patch("app.notify_service.httpx.Client") as mock_client_cls:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 204
+            mock_client = MagicMock()
+            mock_client.post.return_value = mock_resp
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
+            mock_client.__exit__ = MagicMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
+            resp = notify_client.post("/notify", json={"message": "Hi", "level": "urgent"})
+
+        assert resp.status_code == 200
+        assert resp.json()["sent"] is True
+        # 'notice' level routes to the notice webhook (not info or critical).
+        call_url = mock_client.post.call_args.args[0]
+        assert "notice" in call_url
 
     def test_notify_missing_message_rejected(self, notify_client):
         resp = notify_client.post("/notify", json={"title": "No message"})
@@ -1186,7 +1257,16 @@ class TestNotifyEndpoint:
         assert len(resp.json()["results"]) == 1
 
     def test_notify_nonexistent_channel(self, notify_client):
-        with patch("app.notify_service.httpx.Client"):
+        """Invalid channel falls back to 'all' which broadcasts to all providers."""
+        with patch("app.notify_service.httpx.Client") as mock_client_cls:
+            mock_resp = MagicMock()
+            mock_resp.status_code = 204
+            mock_client = MagicMock()
+            mock_client.post.return_value = mock_resp
+            mock_client.__enter__ = MagicMock(return_value=mock_client)
+            mock_client.__exit__ = MagicMock(return_value=False)
+            mock_client_cls.return_value = mock_client
+
             resp = notify_client.post("/notify", json={
                 "message": "Hello",
                 "channels": ["nonexistent"],
@@ -1194,8 +1274,11 @@ class TestNotifyEndpoint:
 
         assert resp.status_code == 200
         data = resp.json()
-        assert data["sent"] is False
-        assert len(data["results"]) == 0
+        assert data["sent"] is True
+        # Falls back to 'all' → broadcasts to all providers (just discord here).
+        assert len(data["results"]) == 1
+        assert data["results"][0]["provider"] == "discord"
+        assert data["results"][0]["success"] is True
 
     def test_notify_api_error(self, notify_client):
         with patch("app.notify_service.httpx.Client") as mock_client_cls:
