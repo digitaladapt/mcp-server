@@ -218,13 +218,20 @@ def create_app() -> FastAPI:
     # Discover notify providers (Discord, future Ntfy, etc.).
     has_notify = init_notify_registry()
 
+    # Weather data enrichment (Open-Meteo, no API key required).
+    from .weather_models import WeatherConfig
+    from .weather_routes import reset_weather_service
+    reset_weather_service()
+    has_weather = WeatherConfig.from_env() is not None
+
     # Fail-fast: if nothing is configured, refuse to start.
-    if not has_calendar and not has_gitea and not registry_commands and not has_notify:
+    if not has_calendar and not has_gitea and not registry_commands \
+            and not has_notify and not has_weather:
         raise RuntimeError(
             "No features configured.  Set at least one of: "
             "CALDAV_URL, ICS_CALENDAR_URL, GITEA_URL, DISCORD_INFO_HOOK, "
-            "NTFY_URL + NTFY_INFO_TOPIC, or ensure registry command YAML "
-            "files are present."
+            "NTFY_URL + NTFY_INFO_TOPIC, WEATHER_LOCATION, or ensure "
+            "registry command YAML files are present."
         )
 
     app = FastAPI(
@@ -265,6 +272,13 @@ def create_app() -> FastAPI:
     if has_notify:
         from .notify_routes import create_notify_router
         app.include_router(create_notify_router())
+
+    # ------------------------------------------------------------------ #
+    # Weather endpoint (conditional)
+    # ------------------------------------------------------------------ #
+    if has_weather:
+        from .weather_routes import create_weather_router
+        app.include_router(create_weather_router())
 
     # ------------------------------------------------------------------ #
     # Registry command routes (always present when commands exist)
