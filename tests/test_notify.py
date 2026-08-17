@@ -98,7 +98,7 @@ class TestNotifyModels:
         for color_int, ntfy_tag in COLOR_MAP.values():
             assert isinstance(color_int, int)
             assert isinstance(ntfy_tag, str)
-            assert ntfy_tag.endswith("_circle")
+            assert ntfy_tag.endswith("_square")
 
     def test_level_order_is_ascending(self):
         assert LEVEL_ORDER == ["info", "notice", "critical", "emergency"]
