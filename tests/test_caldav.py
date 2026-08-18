@@ -1047,6 +1047,58 @@ class TestConnectionRecovery:
         assert attempts == 1  # no retry
         service._reset_connection.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "exc_cls",
+        [
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ],
+    )
+    def test_recovery_retries_on_network_errors(self, exc_cls) -> None:
+        """ConnectionError, TimeoutError, and OSError should trigger retry."""
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+
+        mock_lyra = MagicMock()
+        mock_lyra.get_display_name.return_value = "Lyra"
+        mock_lyra.url = "https://caldav.example.com/lyra"
+
+        service = CalDAVService(config)
+        service._calendars_cache = None
+
+        attempts = 0
+
+        def mock_get_all():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise exc_cls("network hiccup")
+            return [mock_lyra]
+
+        service._get_all_calendars = mock_get_all
+        reset_called = False
+
+        def tracking_reset():
+            nonlocal reset_called
+            reset_called = True
+            service._calendars_cache = None
+
+        service._reset_connection = tracking_reset
+
+        result = service.list_calendars()
+        assert reset_called is True
+        assert attempts == 2
+        assert len(result) == 1
+        assert result[0].name == "Lyra"
+
 
 class TestExtractComponent:
     """Tests for the _extract_component shared helper."""

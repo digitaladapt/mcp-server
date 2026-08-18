@@ -25,6 +25,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import caldav
+import caldav.lib.error
 from icalendar import Alarm as ICalAlarm
 from icalendar import Calendar as ICalCalendar
 from icalendar import Event as ICalEvent
@@ -58,16 +59,30 @@ def _with_connection_recovery(method):
     cached connection/calendar list and retry once.
 
     This guards against stale connections when the CalDAV server restarts
-    or the network hiccups.
+    or the network hiccups.  In addition to ``DAVError`` (protocol-level
+    failures from the caldav library), network-level errors such as
+    ``ConnectionError``, ``TimeoutError``, and ``OSError`` are caught —
+    these are the most common manifestations of network hiccups.
     """
+
+    # Tuple of exception types that should trigger a connection reset and
+    # retry.  ``OSError`` covers ``requests.exceptions.ConnectionError``
+    # (which inherits from ``IOError`` / ``OSError``) as well as low-level
+    # socket failures.
+    _retriable_errors = (
+        caldav.lib.error.DAVError,
+        ConnectionError,
+        TimeoutError,
+        OSError,
+    )
 
     @functools.wraps(method)
     def wrapper(self: CalDAVService, *args: Any, **kwargs: Any) -> Any:
         try:
             return method(self, *args, **kwargs)
-        except caldav.lib.error.DAVError as exc:
+        except _retriable_errors as exc:
             logger.warning(
-                "DAVError in %s: %s — resetting connection and retrying",
+                "Recoverable error in %s: %s — resetting connection and retrying",
                 method.__name__, exc,
             )
             self._reset_connection()
@@ -113,7 +128,8 @@ class CalDAVService:
     def _reset_connection(self) -> None:
         """Drop cached connection and calendar list.
 
-        Called by :func:`_with_connection_recovery` when a DAVError
+        Called by :func:`_with_connection_recovery` when a recoverable
+        error (DAVError, ConnectionError, TimeoutError, OSError)
         suggests the connection is stale.
         """
         self._principal = None
