@@ -241,51 +241,20 @@ class TestCalDAVAuthIntegration:
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> TestClient:
         """A TestClient with MCP_API_KEY set and CalDAV configured."""
-        import importlib
-
         monkeypatch.setenv("MCP_API_KEY", "secret")
         monkeypatch.setenv("CALDAV_URL", "https://caldav.example.com")
         monkeypatch.setenv("CALDAV_USERNAME", "user")
         monkeypatch.setenv("CALDAV_PASSWORD", "pass")
         monkeypatch.setenv("CALDAV_EDITABLE_CALENDAR", "Lyra")
 
-        # Reload auth and all route modules so they pick up the new key
-        for mod_name in [
-            "app.auth", "app.caldav_routes", "app.gitea_routes",
-            "app.ics_routes", "app.unified_routes", "app.registry_routes",
-            "app.provider_adapters", "app.main",
-        ]:
-            importlib.sys.modules.pop(mod_name, None)
-
-        import app.auth
-        import app.caldav_routes
-        import app.gitea_routes
-        import app.ics_routes
-        import app.main
-        import app.registry_routes
-        import app.unified_routes
+        # Auth now reads MCP_API_KEY per-request, so no module reload needed.
         from app.caldav_routes import _reset_service
         _reset_service()
 
-        app = app.main.create_app()
+        from app.main import create_app
+        app = create_app()
         with TestClient(app) as c:
             yield c
-
-        # Cleanup: restore auth module to no-key state
-        monkeypatch.delenv("MCP_API_KEY", raising=False)
-        for mod_name in [
-            "app.auth", "app.caldav_routes", "app.gitea_routes",
-            "app.ics_routes", "app.unified_routes", "app.registry_routes",
-            "app.provider_adapters", "app.main",
-        ]:
-            importlib.sys.modules.pop(mod_name, None)
-        import app.auth
-        import app.caldav_routes
-        import app.gitea_routes
-        import app.ics_routes
-        import app.main
-        import app.registry_routes
-        import app.unified_routes
 
     def test_calendars_requires_auth(self, auth_client: TestClient) -> None:
         resp = auth_client.get("/calendars")
