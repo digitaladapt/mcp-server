@@ -177,7 +177,7 @@ async def run_command(
             proc.communicate(),
             timeout=timeout,
         )
-    except asyncio.TimeoutExpired:
+    except TimeoutError:
         # Kill the entire process group — not just the direct child.
         # This is critical: if discord.sh spawns curl, and curl hangs,
         # killing only bash leaves curl alive as an orphan, still
@@ -192,7 +192,7 @@ async def run_command(
                 proc.communicate(),
                 timeout=2,
             )
-        except (asyncio.TimeoutExpired, Exception):  # noqa: BLE001
+        except (TimeoutError, Exception):  # noqa: BLE001
             stdout, stderr = b"", b""
 
         logger.warning("Command timed out after %ss: %s", timeout, ' '.join(shlex.quote(c) for c in cmd))

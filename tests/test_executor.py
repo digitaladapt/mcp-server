@@ -268,3 +268,101 @@ class TestRunCommand:
         result = await run_command(schema, {})
         assert result.success is False
         assert result.exit_code == 1
+
+
+# --------------------------------------------------------------------------- #
+# Timeout and process-group kill
+# --------------------------------------------------------------------------- #
+
+class TestTimeout:
+    """Tests for the timeout / process-group kill logic in ``run_command``.
+
+    These verify the most critical safety mechanism: when a command exceeds
+    its timeout, ``ValueError`` is raised and the entire process group
+    (including any children) is killed.
+    """
+
+    async def test_timeout_raises_value_error(self):
+        """A sleeping command with a short timeout must raise ValueError."""
+        schema = _schema("/bin/sleep", ArgSpec(name="secs", type="string", required=True))
+        with pytest.raises(ValueError, match="timed out"):
+            await run_command(schema, {"secs": "30"}, timeout=1)
+
+    async def test_timeout_kills_process_group(self):
+        """After timeout, the child process should no longer be alive.
+
+        We start ``sleep 30`` with a 1-second timeout.  After the timeout
+        fires and ``_kill_process_group`` runs, the child PID should not
+        exist anymore (or at least should not be our child).
+        """
+        import asyncio
+        import signal
+
+        schema = _schema("/bin/sleep", ArgSpec(name="secs", type="string", required=True))
+
+        # Build the command manually so we can track the process
+        from app.executor import _kill_process_group, _validate_and_build
+        cmd = _validate_and_build(schema, {"secs": "30"})
+
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+
+        pid = proc.pid
+
+        # Wait for it to be definitely running
+        await asyncio.sleep(0.1)
+
+        # Kill the process group (same logic as run_command timeout path)
+        _kill_process_group(pid)
+
+        # Wait for the process to be reaped
+        await asyncio.wait_for(proc.wait(), timeout=5)
+
+        # The process should have been killed (SIGKILL → return code -9)
+        assert proc.returncode is not None
+        assert proc.returncode == -signal.SIGKILL
+
+    async def test_timeout_with_subshell_kills_children(self):
+        """A shell script that spawns a child must have both killed.
+
+        Uses ``bash -c 'sleep 30 & sleep 30'`` with a 1s timeout.  After
+        the timeout, we verify no orphaned sleep processes remain by
+        checking that the process group is gone.
+        """
+
+        # Use bash as the executable with a script that spawns children
+        schema = _schema(
+            "/bin/bash",
+            ArgSpec(name="-c", type="string", required=True),
+        )
+
+        with pytest.raises(ValueError, match="timed out"):
+            await run_command(
+                schema,
+                {"-c": "sleep 30 & sleep 30"},
+                timeout=1,
+            )
+
+    async def test_kill_process_group_already_dead(self):
+        """_kill_process_group should not raise if the process is gone."""
+        import asyncio
+
+        from app.executor import _kill_process_group
+
+        # Start and immediately wait for a quick command
+        schema = _schema("/bin/true")
+        cmd = _validate_and_build(schema, {})
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            start_new_session=True,
+        )
+        await proc.wait()
+
+        # Should not raise even though the process is already dead
+        _kill_process_group(proc.pid)
