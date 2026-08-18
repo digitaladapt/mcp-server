@@ -162,7 +162,7 @@ class CalDAVService:
         try:
             name = cal.get_display_name()
             return str(name) if name else ""
-        except Exception:  # noqa: BLE001
+        except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError):
             return ""
 
     def _is_editable(self, calendar_name: str) -> bool:
@@ -247,7 +247,7 @@ class CalDAVService:
                     event=True,
                     expand=True,
                 )
-            except Exception as exc:  # noqa: BLE001
+            except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
                 logger.warning("Failed to search events in '%s': %s", name, exc)
                 continue
 
@@ -256,7 +256,7 @@ class CalDAVService:
                     ev = self._parse_event(obj, name, editable)
                     if ev:
                         events.append(ev)
-                except Exception as exc:  # noqa: BLE001
+                except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
                     logger.warning("Failed to parse event in '%s': %s", name, exc)
 
         events.sort(key=lambda e: e.start)
@@ -305,11 +305,11 @@ class CalDAVService:
                     comp_class=caldav.Event,
                     uid=uid,
                 )
-            except Exception:  # noqa: BLE001
+            except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError):
                 # Fallback: search all events and filter by UID
                 try:
                     found = cal.search(event=True, expand=True)
-                except Exception as exc:  # noqa: BLE001
+                except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
                     logger.warning("Failed to search events in '%s': %s", name, exc)
                     continue
 
@@ -367,7 +367,7 @@ class CalDAVService:
 
         try:
             cal.save_event(ical.to_ical().decode("utf-8"))
-        except Exception as exc:
+        except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
             raise CalDAVError(f"Failed to create event: {exc}") from exc
 
         return CalendarEvent(
@@ -487,7 +487,7 @@ class CalDAVService:
         target_obj.data = new_data
         try:
             target_obj.save()
-        except Exception as exc:
+        except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
             raise CalDAVError(f"Failed to save event: {exc}") from exc
 
         result = self._parse_event(target_obj, self._config.editable_calendar, True)
@@ -526,7 +526,7 @@ class CalDAVService:
         try:
             target_obj.delete()
             return True
-        except Exception as exc:
+        except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
             raise CalDAVError(f"Failed to delete event: {exc}") from exc
 
     # ------------------------------------------------------------------ #
@@ -545,10 +545,10 @@ class CalDAVService:
 
             try:
                 found = cal.search(todo=True, include_completed=True)
-            except Exception:  # noqa: BLE001
+            except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError):
                 try:
                     found = cal.search(todo=True)
-                except Exception as exc:  # noqa: BLE001
+                except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
                     logger.warning("Failed to search tasks in '%s': %s", name, exc)
                     continue
 
@@ -557,7 +557,7 @@ class CalDAVService:
                     task = self._parse_task(obj, name, editable)
                     if task:
                         tasks.append(task)
-                except Exception as exc:  # noqa: BLE001
+                except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
                     logger.warning("Failed to parse task in '%s': %s", name, exc)
 
         tasks.sort(key=lambda t: t.due or t.summary)
@@ -607,10 +607,10 @@ class CalDAVService:
                     comp_class=caldav.Todo,
                     uid=uid,
                 )
-            except Exception:  # noqa: BLE001
+            except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError):
                 try:
                     found = cal.search(todo=True, include_completed=True)
-                except Exception as exc:  # noqa: BLE001
+                except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
                     logger.warning("Failed to search tasks in '%s': %s", name, exc)
                     continue
 
@@ -669,7 +669,7 @@ class CalDAVService:
 
         try:
             cal.save_todo(ical.to_ical().decode("utf-8"))
-        except Exception as exc:
+        except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
             raise CalDAVError(f"Failed to create task: {exc}") from exc
 
         return CalendarTask(
@@ -757,7 +757,7 @@ class CalDAVService:
         target_obj.data = new_data
         try:
             target_obj.save()
-        except Exception as exc:
+        except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
             raise CalDAVError(f"Failed to save task: {exc}") from exc
 
         result = self._parse_task(target_obj, self._config.editable_calendar, True)
@@ -793,7 +793,7 @@ class CalDAVService:
         try:
             target_obj.delete()
             return True
-        except Exception as exc:
+        except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError) as exc:
             raise CalDAVError(f"Failed to delete task: {exc}") from exc
 
     # ------------------------------------------------------------------ #
@@ -841,13 +841,13 @@ class CalDAVService:
         search_kwargs: dict[str, Any] = {"comp_class": comp_class, "uid": uid}
         try:
             found = cal.search(**search_kwargs)
-        except Exception:  # noqa: BLE001
+        except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError):
             if component_name == "VEVENT":
                 found = cal.search(event=True, expand=True)
             else:
                 try:
                     found = cal.search(todo=True, include_completed=True)
-                except Exception:  # noqa: BLE001
+                except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError):
                     found = cal.search(todo=True)
 
         for obj in found:

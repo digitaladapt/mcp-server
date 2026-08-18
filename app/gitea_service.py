@@ -332,7 +332,7 @@ class GiteaService:
             detail = resp.text
             try:
                 detail = resp.json().get("message", resp.text)
-            except Exception:  # noqa: BLE001, S110
+            except ValueError:
                 pass
             raise GiteaError(f"API error {resp.status_code}: {detail}")
 
