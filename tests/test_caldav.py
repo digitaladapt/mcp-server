@@ -1243,7 +1243,7 @@ class TestClientCalendarMethods:
 
         result = mc.list_calendars()
         assert result["editable_count"] == 1
-        mc._client.get.assert_called_with("/calendars")
+        mc._client.get.assert_called_with("/calendars", params=None)
 
     def test_list_events_with_params(self) -> None:
         from app.client import MCPClient
@@ -1283,7 +1283,7 @@ class TestClientCalendarMethods:
 
         result = mc.get_event("evt-1")
         assert result["uid"] == "evt-1"
-        mc._client.get.assert_called_with("/events/evt-1")
+        mc._client.get.assert_called_with("/events/evt-1", params=None)
 
     def test_create_event(self) -> None:
         from app.client import MCPClient
@@ -1322,7 +1322,7 @@ class TestClientCalendarMethods:
 
         result = mc.delete_event("evt-1")
         assert result["deleted"] is True
-        mc._client.delete.assert_called_with("/events/evt-1")
+        mc._client.delete.assert_called_with("/events/evt-1", params=None)
 
     def test_list_tasks(self) -> None:
         from app.client import MCPClient
@@ -1334,7 +1334,7 @@ class TestClientCalendarMethods:
 
         result = mc.list_tasks()
         assert result["total"] == 0
-        mc._client.get.assert_called_with("/tasks")
+        mc._client.get.assert_called_with("/tasks", params=None)
 
     def test_get_task(self) -> None:
         from app.client import MCPClient
@@ -1346,7 +1346,7 @@ class TestClientCalendarMethods:
 
         result = mc.get_task("task-1")
         assert result["uid"] == "task-1"
-        mc._client.get.assert_called_with("/tasks/task-1")
+        mc._client.get.assert_called_with("/tasks/task-1", params=None)
 
     def test_create_task(self) -> None:
         from app.client import MCPClient
@@ -1385,7 +1385,7 @@ class TestClientCalendarMethods:
 
         result = mc.delete_task("task-1")
         assert result["deleted"] is True
-        mc._client.delete.assert_called_with("/tasks/task-1")
+        mc._client.delete.assert_called_with("/tasks/task-1", params=None)
 
 
 class TestDeleteTaskEndpoint:

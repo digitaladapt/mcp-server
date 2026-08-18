@@ -73,8 +73,8 @@ class MCPClient:
 
     # -- low-level ------------------------------------------------------
 
-    def _get(self, path: str) -> Any:
-        resp = self._client.get(path)
+    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        resp = self._client.get(path, params=params)
         if resp.status_code >= 400:
             raise MCPError(
                 f"GET {path} -> {resp.status_code}: {resp.text}"
@@ -97,8 +97,8 @@ class MCPClient:
             )
         return resp.json()
 
-    def _delete(self, path: str) -> Any:
-        resp = self._client.delete(path)
+    def _delete(self, path: str, params: dict[str, Any] | None = None) -> Any:
+        resp = self._client.delete(path, params=params)
         if resp.status_code >= 400:
             raise MCPError(
                 f"DELETE {path} -> {resp.status_code}: {resp.text}"
@@ -164,12 +164,7 @@ class MCPClient:
             params["start"] = start
         if end:
             params["end"] = end
-        resp = self._client.get("/events", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(
-                f"GET /events -> {resp.status_code}: {resp.text}"
-            )
-        return resp.json()
+        return self._get("/events", params=params)
 
     def get_event(self, uid: str) -> dict[str, Any]:
         """Get a single event by UID."""
@@ -267,17 +262,11 @@ class MCPClient:
         Keyword arguments are passed as query params: ``state``, ``labels``,
         ``owner``, ``repo``, ``page``, ``limit``.
         """
-        resp = self._client.get("/issues", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(f"GET /issues -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        return self._get("/issues", params=params)
 
     def get_issue(self, index: int, **params: Any) -> dict[str, Any]:
         """Get a single issue by number."""
-        resp = self._client.get(f"/issues/{index}", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(f"GET /issues/{index} -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        return self._get(f"/issues/{index}", params=params)
 
     def create_issue(self, **fields: Any) -> dict[str, Any]:
         """Create a new issue. Fields: ``title`` (required), ``body``, ``labels``, ``assignees``, ``milestone``."""
@@ -289,10 +278,7 @@ class MCPClient:
 
     def list_branches(self, **params: Any) -> dict[str, Any]:
         """List branches in the (default) repository."""
-        resp = self._client.get("/branches", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(f"GET /branches -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        return self._get("/branches", params=params)
 
     def create_branch(self, name: str, from_ref: str = "", **params: Any) -> dict[str, Any]:
         """Create a new branch. ``from_ref`` defaults to the repo's default branch."""
@@ -304,24 +290,15 @@ class MCPClient:
 
     def delete_branch(self, name: str, **params: Any) -> dict[str, Any]:
         """Delete a branch by name."""
-        resp = self._client.delete(f"/branches/{name}", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(f"DELETE /branches/{name} -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        return self._delete(f"/branches/{name}", params=params)
 
     def list_prs(self, **params: Any) -> dict[str, Any]:
         """List pull requests. Params: ``state``, ``owner``, ``repo``, ``page``, ``limit``."""
-        resp = self._client.get("/prs", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(f"GET /prs -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        return self._get("/prs", params=params)
 
     def get_pr(self, index: int, **params: Any) -> dict[str, Any]:
         """Get a single pull request by number."""
-        resp = self._client.get(f"/prs/{index}", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(f"GET /prs/{index} -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        return self._get(f"/prs/{index}", params=params)
 
     def create_pr(self, title: str, head: str, base: str, body: str = "", **params: Any) -> dict[str, Any]:
         """Create a pull request."""
@@ -341,24 +318,15 @@ class MCPClient:
 
     def list_actions(self, **params: Any) -> dict[str, Any]:
         """List CI workflow runs."""
-        resp = self._client.get("/actions", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(f"GET /actions -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        return self._get("/actions", params=params)
 
     def get_commit_statuses(self, sha: str, **params: Any) -> dict[str, Any]:
         """Get CI status checks for a commit."""
-        resp = self._client.get(f"/commits/{sha}/statuses", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(f"GET /commits/{sha}/statuses -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        return self._get(f"/commits/{sha}/statuses", params=params)
 
     def list_releases(self, **params: Any) -> dict[str, Any]:
         """List releases in the (default) repository."""
-        resp = self._client.get("/releases", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(f"GET /releases -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        return self._get("/releases", params=params)
 
     def create_release(self, tag: str, **fields: Any) -> dict[str, Any]:
         """Create a release. Fields: ``tag`` (required), ``name``, ``body``, ``target``, ``draft``, ``prerelease``."""
@@ -368,18 +336,14 @@ class MCPClient:
 
     def delete_release(self, release_id: int, **params: Any) -> dict[str, Any]:
         """Delete a release by ID."""
-        resp = self._client.delete(f"/releases/{release_id}", params=params)
-        if resp.status_code >= 400:
-            raise MCPError(f"DELETE /releases/{release_id} -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        return self._delete(f"/releases/{release_id}", params=params)
 
     def compare(self, base: str, head: str, owner: str | None = None, repo: str | None = None) -> dict[str, Any]:
         """Compare two refs in a repository."""
-        path = f"/repos/{owner or ''}/{repo or ''}/compare?base={base}&head={head}"
-        resp = self._client.get(path)
-        if resp.status_code >= 400:
-            raise MCPError(f"GET compare -> {resp.status_code}: {resp.text}")
-        return resp.json()
+        # The server route is /repos/{owner}/{repo}/compare with base/head
+        # as query params.  owner/repo default to the server's configured repo.
+        path = f"/repos/{owner or ''}/{repo or ''}/compare"
+        return self._get(path, params={"base": base, "head": head})
 
     # -- context-manager sugar -----------------------------------------
 
