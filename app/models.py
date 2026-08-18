@@ -5,7 +5,11 @@ Used by the registry loader, executor, API layer, and client library.
 
 from typing import Any
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_serializer, field_validator
+
+#: Sentinel used to distinguish "no default set" from a falsy default
+#: like ``False``, ``0``, ``""``, or ``None`` (explicitly null in YAML).
+UNSET: Any = object()
 
 
 class ValidationIssue(BaseModel):
@@ -39,7 +43,7 @@ class ArgSpec(BaseModel):
     type: str
     required: bool = False
     choices: list[Any] | None = None
-    default: Any | None = None
+    default: Any = UNSET
 
     help: str | None = None
     # Optional clean name for the native tool parameter.  When set, this
@@ -57,8 +61,17 @@ class ArgSpec(BaseModel):
 
     @property
     def has_default(self) -> bool:
-        """True when a default value was explicitly set."""
-        return self.default is not None
+        """True when a default value was explicitly set.
+
+        Distinguishes between "no default in YAML" (``UNSET``) and
+        "default: null" in YAML (``None``).
+        """
+        return self.default is not UNSET
+
+    @field_serializer("default")
+    def _serialize_default(self, v: Any) -> Any:
+        """Serialize UNSET as None for JSON/API output."""
+        return None if v is UNSET else v
 
     @field_validator("type")
     @classmethod
