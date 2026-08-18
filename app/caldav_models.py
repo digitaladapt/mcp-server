@@ -333,7 +333,7 @@ class CalDAVConfig(BaseModel):
     url: str
     username: str
     password: str
-    editable_calendar: str
+    editable_calendar: str | None
     readonly_calendars: list[str] = []  # empty = all others are read-only
 
     @classmethod
@@ -350,7 +350,7 @@ class CalDAVConfig(BaseModel):
 
         username = os.environ.get("CALDAV_USERNAME", "")
         password = os.environ.get("CALDAV_PASSWORD", "")
-        editable = os.environ.get("CALDAV_EDITABLE_CALENDAR", "Lyra")
+        editable = os.environ.get("CALDAV_EDITABLE_CALENDAR", "").strip() or None
         readonly_raw = os.environ.get("CALDAV_READONLY_CALENDARS", "")
         readonly = [
             name.strip() for name in readonly_raw.split(",") if name.strip()

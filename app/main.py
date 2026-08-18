@@ -257,7 +257,7 @@ def create_app() -> FastAPI:
         # Calendar listing is now handled by the unified router.
         if has_caldav:
             from .caldav_routes import create_caldav_router
-            app.include_router(create_caldav_router())
+            app.include_router(create_caldav_router(include_write=has_editable))
 
     # ------------------------------------------------------------------ #
     # Gitea endpoints (conditional)

@@ -167,7 +167,10 @@ class CalDAVService:
 
     def _is_editable(self, calendar_name: str) -> bool:
         """Check if a calendar is editable."""
-        return calendar_name == self._config.editable_calendar
+        return (
+            self._config.editable_calendar is not None
+            and calendar_name == self._config.editable_calendar
+        )
 
     def _get_target_calendars(self) -> list[caldav.Calendar]:
         """Return the list of :class:`caldav.Calendar` objects to query.
@@ -322,6 +325,8 @@ class CalDAVService:
     @_with_connection_recovery
     def create_event(self, req: CreateEventRequest) -> CalendarEvent:
         """Create a new event on the editable calendar."""
+        if self._config.editable_calendar is None:
+            raise CalDAVError("No editable calendar configured")
         cal = self._get_calendar(self._config.editable_calendar)
         if cal is None:
             raise CalDAVError(
@@ -389,6 +394,8 @@ class CalDAVService:
     @_with_connection_recovery
     def update_event(self, uid: str, req: UpdateEventRequest) -> CalendarEvent:
         """Update an existing event on the editable calendar."""
+        if self._config.editable_calendar is None:
+            raise CalDAVError("No editable calendar configured")
         cal = self._get_calendar(self._config.editable_calendar)
         if cal is None:
             raise CalDAVError(
@@ -513,6 +520,8 @@ class CalDAVService:
     @_with_connection_recovery
     def delete_event(self, uid: str) -> bool:
         """Delete an event from the editable calendar."""
+        if self._config.editable_calendar is None:
+            raise CalDAVError("No editable calendar configured")
         cal = self._get_calendar(self._config.editable_calendar)
         if cal is None:
             raise CalDAVError(
@@ -623,6 +632,8 @@ class CalDAVService:
     @_with_connection_recovery
     def create_task(self, req: CreateTaskRequest) -> CalendarTask:
         """Create a new task on the editable calendar."""
+        if self._config.editable_calendar is None:
+            raise CalDAVError("No editable calendar configured")
         cal = self._get_calendar(self._config.editable_calendar)
         if cal is None:
             raise CalDAVError(
@@ -689,6 +700,8 @@ class CalDAVService:
     @_with_connection_recovery
     def update_task(self, uid: str, req: UpdateTaskRequest) -> CalendarTask:
         """Update an existing task on the editable calendar."""
+        if self._config.editable_calendar is None:
+            raise CalDAVError("No editable calendar configured")
         cal = self._get_calendar(self._config.editable_calendar)
         if cal is None:
             raise CalDAVError(
@@ -780,6 +793,8 @@ class CalDAVService:
     @_with_connection_recovery
     def delete_task(self, uid: str) -> bool:
         """Delete a task from the editable calendar."""
+        if self._config.editable_calendar is None:
+            raise CalDAVError("No editable calendar configured")
         cal = self._get_calendar(self._config.editable_calendar)
         if cal is None:
             raise CalDAVError(

@@ -22,8 +22,8 @@ class CalDAVProvider:
     """Calendar provider adapter for CalDAV.
 
     Delegates to the CalDAVService singleton managed by
-    :mod:`app.caldav_routes`.  The provider is always editable when
-    registered — CalDAV config guarantees an editable calendar name.
+    :mod:`app.caldav_routes`.  The provider is editable only when
+    ``CALDAV_EDITABLE_CALENDAR`` is explicitly set in the configuration.
     """
 
     @property
@@ -32,8 +32,10 @@ class CalDAVProvider:
 
     @property
     def is_editable(self) -> bool:
-        """CalDAV is always editable when configured."""
-        return True
+        """True only when an editable calendar is configured."""
+        from .caldav_models import CalDAVConfig
+        config = CalDAVConfig.from_env()
+        return config is not None and config.editable_calendar is not None
 
     def list_events(
         self,

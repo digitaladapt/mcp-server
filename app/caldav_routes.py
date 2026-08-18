@@ -70,12 +70,16 @@ def _reset_service() -> None:
     _service_inited = False
 
 
-def create_caldav_router() -> APIRouter:
+def create_caldav_router(*, include_write: bool = True) -> APIRouter:
     """Build the CalDAV-specific router.
 
     This router is only mounted when CalDAV is configured.  It provides
     calendar listing and task management.  Event endpoints are handled
     by the unified events router.
+
+    When ``include_write`` is False, only read endpoints (GET) are
+    registered — POST/PUT/DELETE are omitted.  This is used when
+    no editable calendar is configured.
     """
     router = APIRouter(
         prefix="",
@@ -84,7 +88,7 @@ def create_caldav_router() -> APIRouter:
     )
 
     # ------------------------------------------------------------------ #
-    # Task endpoints
+    # Task endpoints — read (always available when CalDAV is configured)
     # ------------------------------------------------------------------ #
 
     @router.get("/tasks", response_model=TaskListResponse)
@@ -111,47 +115,52 @@ def create_caldav_router() -> APIRouter:
             raise HTTPException(status_code=404, detail="Task not found")
         return task
 
-    @router.post("/tasks", response_model=CalendarTask, status_code=201)
-    async def create_task(req: CreateTaskRequest) -> CalendarTask:
-        """Create a task."""
-        svc = _get_service()
-        try:
-            return await run_in_threadpool(svc.create_task, req)
-        except CalDAVError:
-            logger.exception("CalDAV error creating task")
-            raise HTTPException(status_code=502, detail="CalDAV service error")
-        except Exception:
-            logger.exception("Unexpected error creating task")
-            raise HTTPException(status_code=502, detail="CalDAV service error")
+    # ------------------------------------------------------------------ #
+    # Task endpoints — write (only when an editable calendar is configured)
+    # ------------------------------------------------------------------ #
 
-    @router.put("/tasks/{uid}", response_model=CalendarTask)
-    async def update_task(uid: str, req: UpdateTaskRequest) -> CalendarTask:
-        """Update a task."""
-        svc = _get_service()
-        try:
-            return await run_in_threadpool(svc.update_task, uid, req)
-        except CalDAVError:
-            logger.exception("CalDAV error updating task %s", uid)
-            raise HTTPException(status_code=400, detail="CalDAV service error")
-        except Exception:
-            logger.exception("Unexpected error updating task %s", uid)
-            raise HTTPException(status_code=502, detail="CalDAV service error")
+    if include_write:
+        @router.post("/tasks", response_model=CalendarTask, status_code=201)
+        async def create_task(req: CreateTaskRequest) -> CalendarTask:
+            """Create a task."""
+            svc = _get_service()
+            try:
+                return await run_in_threadpool(svc.create_task, req)
+            except CalDAVError:
+                logger.exception("CalDAV error creating task")
+                raise HTTPException(status_code=502, detail="CalDAV service error")
+            except Exception:
+                logger.exception("Unexpected error creating task")
+                raise HTTPException(status_code=502, detail="CalDAV service error")
 
-    @router.delete("/tasks/{uid}", response_model=DeleteResponse)
-    async def delete_task(uid: str) -> DeleteResponse:
-        """Delete a task."""
-        svc = _get_service()
-        try:
-            deleted = await run_in_threadpool(svc.delete_task, uid)
-        except CalDAVError:
-            logger.exception("CalDAV error deleting task %s", uid)
-            raise HTTPException(status_code=400, detail="CalDAV service error")
-        except Exception:
-            logger.exception("Unexpected error deleting task %s", uid)
-            raise HTTPException(status_code=502, detail="CalDAV service error")
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Task not found")
-        return DeleteResponse(deleted=True, uid=uid)
+        @router.put("/tasks/{uid}", response_model=CalendarTask)
+        async def update_task(uid: str, req: UpdateTaskRequest) -> CalendarTask:
+            """Update a task."""
+            svc = _get_service()
+            try:
+                return await run_in_threadpool(svc.update_task, uid, req)
+            except CalDAVError:
+                logger.exception("CalDAV error updating task %s", uid)
+                raise HTTPException(status_code=400, detail="CalDAV service error")
+            except Exception:
+                logger.exception("Unexpected error updating task %s", uid)
+                raise HTTPException(status_code=502, detail="CalDAV service error")
+
+        @router.delete("/tasks/{uid}", response_model=DeleteResponse)
+        async def delete_task(uid: str) -> DeleteResponse:
+            """Delete a task."""
+            svc = _get_service()
+            try:
+                deleted = await run_in_threadpool(svc.delete_task, uid)
+            except CalDAVError:
+                logger.exception("CalDAV error deleting task %s", uid)
+                raise HTTPException(status_code=400, detail="CalDAV service error")
+            except Exception:
+                logger.exception("Unexpected error deleting task %s", uid)
+                raise HTTPException(status_code=502, detail="CalDAV service error")
+            if not deleted:
+                raise HTTPException(status_code=404, detail="Task not found")
+            return DeleteResponse(deleted=True, uid=uid)
 
     return router
 

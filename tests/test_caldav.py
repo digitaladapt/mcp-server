@@ -74,7 +74,7 @@ class TestCalDAVConfig:
 
         config = CalDAVConfig.from_env()
         assert config is not None
-        assert config.editable_calendar == "Lyra"
+        assert config.editable_calendar is None
         assert config.username == ""
         assert config.password == ""
 
