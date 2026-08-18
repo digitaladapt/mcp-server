@@ -18,8 +18,12 @@ practice, this router is only mounted when CalDAV IS configured.
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from starlette.concurrency import run_in_threadpool
+
+logger = logging.getLogger(__name__)
 
 from .auth import verify_api_key
 from .caldav_models import (
@@ -89,8 +93,9 @@ def create_caldav_router() -> APIRouter:
         svc = _get_service()
         try:
             tasks = await run_in_threadpool(svc.list_tasks)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=f"CalDAV error: {exc}")
+        except Exception:
+            logger.exception("Failed to list tasks")
+            raise HTTPException(status_code=502, detail="CalDAV service error")
         return TaskListResponse(tasks=tasks, total=len(tasks))
 
     @router.get("/tasks/{uid}", response_model=CalendarTask)
@@ -99,8 +104,9 @@ def create_caldav_router() -> APIRouter:
         svc = _get_service()
         try:
             task = await run_in_threadpool(svc.get_task, uid)
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=f"CalDAV error: {exc}")
+        except Exception:
+            logger.exception("Failed to get task %s", uid)
+            raise HTTPException(status_code=502, detail="CalDAV service error")
         if task is None:
             raise HTTPException(status_code=404, detail="Task not found")
         return task
@@ -111,10 +117,12 @@ def create_caldav_router() -> APIRouter:
         svc = _get_service()
         try:
             return await run_in_threadpool(svc.create_task, req)
-        except CalDAVError as exc:
-            raise HTTPException(status_code=502, detail=str(exc))
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=f"CalDAV error: {exc}")
+        except CalDAVError:
+            logger.exception("CalDAV error creating task")
+            raise HTTPException(status_code=502, detail="CalDAV service error")
+        except Exception:
+            logger.exception("Unexpected error creating task")
+            raise HTTPException(status_code=502, detail="CalDAV service error")
 
     @router.put("/tasks/{uid}", response_model=CalendarTask)
     async def update_task(uid: str, req: UpdateTaskRequest) -> CalendarTask:
@@ -122,10 +130,12 @@ def create_caldav_router() -> APIRouter:
         svc = _get_service()
         try:
             return await run_in_threadpool(svc.update_task, uid, req)
-        except CalDAVError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=f"CalDAV error: {exc}")
+        except CalDAVError:
+            logger.exception("CalDAV error updating task %s", uid)
+            raise HTTPException(status_code=400, detail="CalDAV service error")
+        except Exception:
+            logger.exception("Unexpected error updating task %s", uid)
+            raise HTTPException(status_code=502, detail="CalDAV service error")
 
     @router.delete("/tasks/{uid}", response_model=DeleteResponse)
     async def delete_task(uid: str) -> DeleteResponse:
@@ -133,10 +143,12 @@ def create_caldav_router() -> APIRouter:
         svc = _get_service()
         try:
             deleted = await run_in_threadpool(svc.delete_task, uid)
-        except CalDAVError as exc:
-            raise HTTPException(status_code=400, detail=str(exc))
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=502, detail=f"CalDAV error: {exc}")
+        except CalDAVError:
+            logger.exception("CalDAV error deleting task %s", uid)
+            raise HTTPException(status_code=400, detail="CalDAV service error")
+        except Exception:
+            logger.exception("Unexpected error deleting task %s", uid)
+            raise HTTPException(status_code=502, detail="CalDAV service error")
         if not deleted:
             raise HTTPException(status_code=404, detail="Task not found")
         return DeleteResponse(deleted=True, uid=uid)

@@ -42,8 +42,12 @@ Returns 503 if Gitea is not configured (GITEA_URL unset).
 
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from starlette.concurrency import run_in_threadpool
+
+logger = logging.getLogger(__name__)
 
 from .auth import verify_api_key
 from .gitea_models import (
@@ -133,8 +137,9 @@ async def get_repo(owner: str, repo: str) -> RepoDetail:
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.get_repo, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
 
 
 @router.get("/user/repos", response_model=RepoListResponse)
@@ -143,8 +148,9 @@ async def list_repos() -> RepoListResponse:
     svc = _get_service()
     try:
         repos = await run_in_threadpool(svc.list_repos)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     return RepoListResponse(repos=repos, total=len(repos))
 
 
@@ -160,8 +166,9 @@ async def list_commits(
     svc = _get_service()
     try:
         commits = await run_in_threadpool(svc.list_commits, sha=sha, owner=owner, repo=repo, page=page, limit=limit)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     return CommitListResponse(commits=commits, total=len(commits))
 
 
@@ -171,8 +178,9 @@ async def compare_refs(owner: str, repo: str, base: str, head: str) -> CompareRe
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.compare, base, head, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
 
 
 # --------------------------------------------------------------------------- #
@@ -195,8 +203,9 @@ async def list_issues(
             svc.list_issues,
             state=state, labels=labels, owner=owner, repo=repo, page=page, limit=limit,
         )
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     return IssueListResponse(issues=issues, total=len(issues))
 
 
@@ -210,8 +219,9 @@ async def get_issue(
     svc = _get_service()
     try:
         issue = await run_in_threadpool(svc.get_issue, index, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     if issue is None:
         raise HTTPException(status_code=404, detail="Issue not found")
     return issue
@@ -227,8 +237,9 @@ async def create_issue(
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_issue, req, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
 
 
 @router.patch("/issues/{index}", response_model=IssueDetail)
@@ -242,8 +253,9 @@ async def update_issue(
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.update_issue, index, req, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=400, detail="Gitea service error")
 
 
 @router.get("/issues/{index}/comments", response_model=CommentListResponse)
@@ -256,8 +268,9 @@ async def list_issue_comments(
     svc = _get_service()
     try:
         comments = await run_in_threadpool(svc.list_issue_comments, index, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     return CommentListResponse(comments=comments, total=len(comments))
 
 
@@ -272,8 +285,9 @@ async def create_issue_comment(
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_issue_comment, index, req, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
 
 
 # --------------------------------------------------------------------------- #
@@ -289,8 +303,9 @@ async def list_branches(
     svc = _get_service()
     try:
         branches = await run_in_threadpool(svc.list_branches, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     return BranchListResponse(branches=branches, total=len(branches))
 
 
@@ -304,8 +319,9 @@ async def create_branch(
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_branch, req, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
 
 
 @router.delete("/branches/{name:path}", response_model=DeleteResponse)
@@ -318,8 +334,9 @@ async def delete_branch(
     svc = _get_service()
     try:
         deleted = await run_in_threadpool(svc.delete_branch, name, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=400, detail="Gitea service error")
     if not deleted:
         raise HTTPException(status_code=404, detail="Branch not found")
     return DeleteResponse(deleted=True, resource="branch", identifier=name)
@@ -341,8 +358,9 @@ async def list_prs(
     svc = _get_service()
     try:
         prs = await run_in_threadpool(svc.list_prs, state=state, owner=owner, repo=repo, page=page, limit=limit)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     return PRListResponse(pulls=prs, total=len(prs))
 
 
@@ -356,8 +374,9 @@ async def get_pr(
     svc = _get_service()
     try:
         pr = await run_in_threadpool(svc.get_pr, index, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     if pr is None:
         raise HTTPException(status_code=404, detail="Pull request not found")
     return pr
@@ -373,8 +392,9 @@ async def create_pr(
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_pr, req, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
 
 
 @router.patch("/prs/{index}", response_model=PRDetail)
@@ -388,8 +408,9 @@ async def update_pr(
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.update_pr, index, req, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=400, detail="Gitea service error")
 
 
 @router.post("/prs/{index}/merge", response_model=MergeResponse)
@@ -403,8 +424,9 @@ async def merge_pr(
     svc = _get_service()
     try:
         merged = await run_in_threadpool(svc.merge_pr, index, req, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=409, detail="Gitea service error")
     # Fetch the updated PR to get merge_commit_sha
     pr = await run_in_threadpool(svc.get_pr, index, owner=owner, repo=repo)
     return MergeResponse(
@@ -424,8 +446,9 @@ async def list_pr_reviews(
     svc = _get_service()
     try:
         reviews = await run_in_threadpool(svc.list_pr_reviews, index, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     return ReviewListResponse(reviews=reviews, total=len(reviews))
 
 
@@ -440,8 +463,9 @@ async def create_pr_comment(
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_pr_comment, index, req, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
 
 
 # --------------------------------------------------------------------------- #
@@ -459,8 +483,9 @@ async def list_actions(
     svc = _get_service()
     try:
         runs = await run_in_threadpool(svc.list_actions, owner=owner, repo=repo, page=page, limit=limit)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     return ActionRunListResponse(runs=runs, total=len(runs))
 
 
@@ -474,8 +499,9 @@ async def get_commit_statuses(
     svc = _get_service()
     try:
         statuses = await run_in_threadpool(svc.get_commit_statuses, sha, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     return CommitStatusListResponse(statuses=statuses, total=len(statuses))
 
 
@@ -494,8 +520,9 @@ async def list_releases(
     svc = _get_service()
     try:
         releases = await run_in_threadpool(svc.list_releases, owner=owner, repo=repo, page=page, limit=limit)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     return ReleaseListResponse(releases=releases, total=len(releases))
 
 
@@ -509,8 +536,9 @@ async def get_release(
     svc = _get_service()
     try:
         release = await run_in_threadpool(svc.get_release, release_id, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
     if release is None:
         raise HTTPException(status_code=404, detail="Release not found")
     return release
@@ -526,8 +554,9 @@ async def create_release(
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.create_release, req, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=502, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
 
 
 @router.patch("/releases/{release_id}", response_model=ReleaseDetail)
@@ -541,8 +570,9 @@ async def update_release(
     svc = _get_service()
     try:
         return await run_in_threadpool(svc.update_release, release_id, req, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=400, detail="Gitea service error")
 
 
 @router.delete("/releases/{release_id}", response_model=DeleteResponse)
@@ -555,8 +585,9 @@ async def delete_release(
     svc = _get_service()
     try:
         deleted = await run_in_threadpool(svc.delete_release, release_id, owner=owner, repo=repo)
-    except GiteaError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=400, detail="Gitea service error")
     if not deleted:
         raise HTTPException(status_code=404, detail="Release not found")
     return DeleteResponse(deleted=True, resource="release", identifier=str(release_id))

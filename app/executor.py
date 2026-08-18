@@ -19,10 +19,13 @@ Key design decisions:
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shlex
 import signal
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from .models import CommandSchema, ExecuteResult
 
@@ -192,9 +195,9 @@ async def run_command(
         except (asyncio.TimeoutExpired, Exception):  # noqa: BLE001
             stdout, stderr = b"", b""
 
+        logger.warning("Command timed out after %ss: %s", timeout, ' '.join(shlex.quote(c) for c in cmd))
         raise ValueError(
-            f"Command timed out after {timeout}s: "
-            f"{' '.join(shlex.quote(c) for c in cmd)}"
+            f"Command timed out after {timeout}s"
         )
 
     return ExecuteResult(
