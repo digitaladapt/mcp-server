@@ -43,10 +43,16 @@ class TestArgSpec:
             ArgSpec(name="x", type="")
 
     # -- has_default property ---------------------------------------------- #
-    def test_has_default_false_when_none(self):
+    def test_has_default_false_when_unset(self):
         arg = ArgSpec(name="x", type="string")
-        assert arg.default is None
         assert arg.has_default is False
+
+    def test_has_default_true_when_explicit_null(self):
+        # Explicitly setting default: null in YAML should be distinguishable
+        # from not setting a default at all.
+        arg = ArgSpec(name="x", type="string", default=None)
+        assert arg.default is None
+        assert arg.has_default is True
 
     def test_has_default_true_when_set(self):
         arg = ArgSpec(name="x", type="string", default="hello")
@@ -93,7 +99,7 @@ class TestArgSpec:
         arg = ArgSpec(name="x", type="string")
         assert arg.required is False
         assert arg.choices is None
-        assert arg.default is None
+        assert not arg.has_default
         assert arg.help is None
 
     # -- full construction -------------------------------------------------- #

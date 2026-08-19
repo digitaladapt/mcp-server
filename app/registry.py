@@ -30,9 +30,8 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # Override via MCP_REGISTRY_DIR env var for non-standard layouts.
 REGISTRY_DIR = Path(os.environ.get("MCP_REGISTRY_DIR", PROJECT_ROOT / "registry"))
 
-#: Sentinel used by CommandSchema to distinguish "no default set" from
-#: a falsy default like ``False``, ``0``, or ``""``.
-#:
+# The UNSET sentinel is defined in app.models and used by ArgSpec to
+# distinguish "no default set" from "explicitly null" defaults.
 
 # In-memory store: {command_name: CommandSchema}
 COMMANDS: dict[str, CommandSchema] = {}

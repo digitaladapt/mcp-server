@@ -1,10 +1,12 @@
 # MCP Server – Modular Command Provider
 
-A small **FastAPI** server that exposes arbitrary terminal commands as
-reusable tools for a language model.  Any CLI program — regardless of the
-language it's written in — can be registered by dropping a YAML (or JSON)
-file into the `registry/` directory.  The model then discovers commands via
-the HTTP API and executes them through a validated, sandboxed endpoint.
+A **FastAPI** server that exposes arbitrary terminal commands — plus
+CalDAV calendars, ICS feeds, Gitea repositories, and notification
+providers — as reusable tools for a language model.  CLI programs are
+registered by dropping a YAML file into `registry/`; integrations are
+enabled by setting environment variables.  The model discovers
+available tools via the OpenAPI schema and calls them through typed
+HTTP endpoints.
 
 ## Why
 
@@ -13,15 +15,17 @@ the HTTP API and executes them through a validated, sandboxed endpoint.
 - **Discoverable** – `GET /commands` lists everything; OpenAPI at `/openapi.json`.
 - **Secure execution** – arguments are validated against the schema before
   the command is ever run; a 30 s timeout prevents hangs.
+- **Conditional registration** – endpoints only exist when their backing
+  service is configured.  The LLM never sees routes that would return 503.
 - **Optional API key** – set `MCP_API_KEY` to require authentication on all
   endpoints except `/api/health` and `/api/about`.
 
 ## Quick start
 
 ```bash
-cd ~/projects/mcp_server
+cd ~/projects/mcp-server
 python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+.venv/bin/pip install -e ".[dev]"
 
 # Optional: set an API key to secure the server
 export MCP_API_KEY="your-secret-key"
@@ -35,7 +39,41 @@ If `MCP_API_KEY` is set, all endpoints except `/api/health` and `/api/about`
 require an `X-API-Key` header matching the key.  If unset, the server runs
 open (suitable for local development or trusted networks).
 
+> **Startup safety:** if nothing is configured (no calendar providers, no
+> Gitea, no notify providers, no weather, and no registry commands), the
+> server refuses to start.  At least one feature must be enabled.
+
+## Architecture
+
+The server uses a **factory pattern** (`create_app()`) that inspects
+environment variables at startup and conditionally registers routers
+for each configured integration.  This means the OpenAPI schema only
+contains endpoints that will actually work — the LLM never discovers
+routes that would return 503.
+
+### Provider system
+
+Calendar integrations (CalDAV and ICS) are implemented as **providers**
+that implement a common protocol.  A global `provider_registry` holds all
+active providers.  The **unified router** (`unified_routes.py`) exposes
+`/events`, `/calendars`, and (when ICS is configured) `/calendars/refresh`
+across all providers.  Write operations (create/update/delete events) are
+only registered when an editable provider exists (i.e. CalDAV with
+`CALDAV_EDITABLE_CALENDAR` set).
+
+### Background jobs
+
+A lightweight job scheduler (`jobs.py`) runs periodic background tasks
+during the app's lifespan.  Currently used for ICS cache refresh.  Job
+status is visible at `GET /jobs`.
+
 ## API
+
+Endpoints are conditionally registered based on configuration.  The
+table below shows all possible endpoints; only those for configured
+features will be present.
+
+### Core (always present)
 
 | Method | Path                 | Description                                  |
 |--------|----------------------|----------------------------------------------|
@@ -44,21 +82,39 @@ open (suitable for local development or trusted networks).
 | GET    | `/commands`          | List all registered commands                 |
 | GET    | `/commands/{name}`   | Retrieve one command's schema                |
 | GET    | `/validate`          | Validate all registry files (detailed report) |
+| GET    | `/jobs`              | List status of periodic background jobs      |
 | POST   | `/{command}`         | Dedicated route per registry command (auto-gen) |
-| GET    | `/calendars`         | List accessible CalDAV calendars             |
-| GET    | `/events`            | List calendar events (optional date range)   |
+
+### Calendar (when CalDAV or ICS is configured)
+
+| Method | Path                 | Description                                  |
+|--------|----------------------|----------------------------------------------|
+| GET    | `/events`            | List events across all calendar providers    |
 | GET    | `/events/{uid}`      | Get a single event by UID                    |
-| POST   | `/events`            | Create an event (editable calendar only)     |
-| PUT    | `/events/{uid}`      | Update an event (editable calendar only)     |
-| DELETE | `/events/{uid}`      | Delete an event (editable calendar only)     |
+| GET    | `/calendars`         | List accessible calendars with metadata      |
+| POST   | `/calendars/refresh` | Refresh ICS cache (when ICS configured)      |
+| POST   | `/events`            | Create an event (only if editable provider)  |
+| PUT    | `/events/{uid}`      | Update an event (only if editable provider)  |
+| DELETE | `/events/{uid}`      | Delete an event (only if editable provider)  |
+
+### CalDAV Tasks (when CalDAV is configured)
+
+| Method | Path                 | Description                                  |
+|--------|----------------------|----------------------------------------------|
 | GET    | `/tasks`             | List calendar tasks (VTODO)                  |
 | GET    | `/tasks/{uid}`       | Get a single task by UID                     |
-| POST   | `/tasks`             | Create a task (editable calendar only)       |
-| PUT    | `/tasks/{uid}`       | Update a task (editable calendar only)       |
-| DELETE | `/tasks/{uid}`       | Delete a task (editable calendar only)       |
+| POST   | `/tasks`             | Create a task (only if editable provider)    |
+| PUT    | `/tasks/{uid}`       | Update a task (only if editable provider)    |
+| DELETE | `/tasks/{uid}`       | Delete a task (only if editable provider)    |
+
+### Gitea (when `GITEA_URL` is set)
+
+| Method | Path                 | Description                                  |
+|--------|----------------------|----------------------------------------------|
 | GET    | `/repos/{owner}/{repo}` | Get repository info                      |
+| GET    | `/user/repos`        | List accessible repositories                 |
 | GET    | `/repos/{owner}/{repo}/commits` | List recent commits                |
-| GET    | `/repos/{owner}/{repo}/compare` | Compare two refs (branches/tags)   |
+| GET    | `/repos/{owner}/{repo}/compare` | Compare two refs (extra tools)      |
 | GET    | `/issues`            | List issues (default repo or owner/repo)     |
 | GET    | `/issues/{index}`   | Get a single issue by number                  |
 | POST   | `/issues`            | Create a new issue                           |
@@ -73,15 +129,31 @@ open (suitable for local development or trusted networks).
 | GET    | `/prs/{index}`       | Get a single PR                              |
 | PATCH  | `/prs/{index}`       | Update a PR (e.g. close it)                  |
 | POST   | `/prs/{index}/merge` | Merge a pull request                         |
-| GET    | `/prs/{index}/reviews` | List reviews on a PR                       |
+| GET    | `/prs/{index}/reviews` | List reviews on a PR (extra tools)        |
 | POST   | `/prs/{index}/comments` | Comment on a PR                           |
 | GET    | `/actions`           | List CI workflow runs                        |
-| GET    | `/commits/{sha}/statuses` | Get CI status checks for a commit       |
+| GET    | `/commits/{sha}/statuses` | Get CI status checks (extra tools)     |
 | GET    | `/releases`          | List releases                                |
 | POST   | `/releases`          | Create a release                             |
 | GET    | `/releases/{release_id}` | Get a single release                     |
 | PATCH  | `/releases/{release_id}` | Update a release                         |
 | DELETE | `/releases/{release_id}` | Delete a release                         |
+
+> **Extra tools:** `/repos/.../compare`, `/prs/{index}/reviews`, and
+> `/commits/{sha}/statuses` are hidden from the OpenAPI schema by default
+> to reduce token count.  Set `MCP_GITEA_EXTRA_TOOLS=1` to expose them.
+
+### Notify (when Discord or Ntfy is configured)
+
+| Method | Path       | Description                                  |
+|--------|------------|----------------------------------------------|
+| POST   | `/notify`  | Send a notification to configured providers  |
+
+### Weather (when `WEATHER_LOCATION` is set)
+
+| Method | Path       | Description                                  |
+|--------|------------|----------------------------------------------|
+| GET    | `/weather` | Current conditions and multi-day forecast    |
 
 ### Example
 
@@ -126,8 +198,8 @@ Output:
 ```
 MCP Server registry validation: /app/registry
 
-  ✓ discord.yaml → discord
-  ✓ hello.yaml → hello
+  ✓ log.yaml → log
+  ✓ log_read.yaml → log_read
   ✗ broken.yaml: mapping values are not allowed here
   ⚠ noprogram.yaml → noprogram: Executable not found: /usr/bin/nonexistent
 
@@ -178,26 +250,40 @@ args:
 
 ### Argument spec fields
 
-| Field      | Type            | Notes                                              |
-|------------|-----------------|----------------------------------------------------|
-| `name`     | string          | Positional placeholder or `--flag` name.           |
-| `type`     | string          | `string`, `int`, `float`, `bool`, or `flag`.       |
-| `required` | bool            | Default `false`.                                   |
-| `choices`  | list            | Optional allowed-value whitelist.                  |
-| `default`  | any             | Optional default value, auto-applied when the arg  |
-|            |                 | is omitted by the caller.                           |
-| `help`     | string          | Human-readable description.                        |
-| `field_name`| string         | Optional clean name for the native tool parameter. |
-|            |                 | When set, this becomes the OpenAPI property name   |
-|            |                 | (e.g. `title` instead of `-t`).  The original      |
-|            |                 | `name` is still used as the CLI flag.              |
-| `hidden`   | bool            | When `true`, the arg is invisible in the tool      |
-|            |                 | surface but always applied with its `default`      |
-|            |                 | value.  Use for flags that must always be passed   |
-|            |                 | but should never be controllable by the model.     |
+| Field        | Type   | Notes                                              |
+|--------------|--------|----------------------------------------------------|
+| `name`       | string | Positional placeholder or `--flag` name.           |
+| `type`       | string | `string`, `int`, `float`, `bool`, or `flag`.       |
+| `required`   | bool   | Default `false`.                                   |
+| `choices`    | list   | Optional allowed-value whitelist.                  |
+| `default`    | any    | Optional default value, auto-applied when the arg  |
+|              |        | is omitted by the caller.                           |
+| `help`       | string | Human-readable description.                        |
+| `field_name` | string | Optional clean name for the native tool parameter. |
+|              |        | When set, this becomes the OpenAPI property name   |
+|              |        | (e.g. `title` instead of `-t`).  The original      |
+|              |        | `name` is still used as the CLI flag.              |
+| `hidden`     | bool   | When `true`, the arg is invisible in the tool      |
+|              |        | surface but always applied with its `default`      |
+|              |        | value.  Use for flags that must always be passed   |
+|              |        | but should never be controllable by the model.     |
 
 A `flag` type means presence-only (no value); the flag name is appended to
 the command line when the argument is truthy.
+
+### Conditional commands (`requires`)
+
+Commands can declare a `requires` list of environment-variable
+conditions.  If the conditions are unmet, the command is loaded but its
+route is not registered (it won't appear in `GET /commands`).
+
+```yaml
+requires:
+  - "MCP_LOG_ENABLED != false"
+```
+
+This is used by `log` and `log_read` to disappear when logging is
+disabled via `MCP_LOG_ENABLED=false`.
 
 ### Defaults
 
@@ -231,18 +317,6 @@ only.
 Unknown fields are rejected (`extra: forbid`) with a 422 response, and
 missing required arguments also return 422.
 
-For example, `registry/discord.yaml` generates:
-
-```
-POST /discord
-  Body: discord_Request
-    quiet:   boolean (default: true)   — quiet mode (maps to -q)
-    alert:   boolean                   — alert mode (maps to -a)
-    color:   enum[22 colors]           — embed color (maps to -c)
-    title:   string                    — title (maps to -t)
-    message: string (required)         — message body
-```
-
 The `field_name` YAML key controls the parameter name shown to the model.
 When omitted, the arg `name` is used (with leading dashes stripped).
 
@@ -272,8 +346,8 @@ result = mc.execute("log", message="Server started")
 print(result["stdout"])
 
 # Bind a command to a reusable callable
-discord = mc.tool("discord")
-discord(message="Deploy complete", **{"-c": "green", "-t": "CI"})
+log = mc.tool("log")
+log(message="Deploy complete")
 ```
 
 Flag names that start with `-` aren't valid Python identifiers, so pass
@@ -289,40 +363,50 @@ with MCPClient() as mc:
     mc.execute("log_read", lines="10")
 ```
 
+The client also provides typed convenience methods for the calendar,
+task, and Gitea APIs (`list_events`, `create_task`, `list_issues`, etc.).
+
 ## Project layout
 
 ```
-mcp_server/
+mcp-server/
 ├─ app/
-│   ├─ __init__.py      # package marker
-│   ├─ main.py          # FastAPI app + endpoints
-│   ├─ auth.py          # API key authentication dependency
-│   ├─ models.py        # Pydantic schemas (commands)
-│   ├─ executor.py      # validation + subprocess wrapper
-│   ├─ registry.py      # YAML/JSON command loader + validate_registry()
-│   ├─ validate.py      # `python -m app.validate` CLI
-│   ├─ client.py        # httpx client library (commands + calendar API)
-│   ├─ caldav_models.py # Pydantic models for calendar events/tasks
-│   ├─ caldav_service.py # CalDAV service (1 editable + N read-only calendars)
-│   ├─ caldav_routes.py # FastAPI router for /calendars, /events, /tasks
-│   ├─ gitea_models.py  # Pydantic models for Gitea resources
-│   ├─ gitea_service.py  # Gitea API service (issues, PRs, branches, releases)
-│   ├─ gitea_routes.py  # FastAPI router for /issues, /prs, /branches, etc.
-│   └─ registry_routes.py # Auto-generated native routes for registry commands
-├─ registry/            # command definitions (one file per command)
-│   ├─ log.yaml          # logging command
-│   ├─ log_read.yaml     # read log tail
-│   └─ discord.yaml      # Discord webhook sender
-├─ scripts/              # helper scripts referenced by registry YAMLs
-│   ├─ discord.sh        # Discord webhook sender
-│   ├─ log.sh            # append to log file
-│   ├─ log_read.sh       # read log tail
-│   └─ config.sh.example # template — copy to config.sh and fill in
-├─ Dockerfile             # multi-arch base image definition
-├─ variants/              # variant Dockerfiles (PHP, Node, etc.)
-│   ├─ Dockerfile.php
-│   └─ Dockerfile.node
-├─ tests/                # pytest test suite
+│   ├─ __init__.py            # package marker, resolves version via importlib.metadata
+│   ├─ main.py                # FastAPI app factory + conditional router registration
+│   ├─ auth.py                # API key authentication dependency
+│   ├─ models.py              # Pydantic schemas (commands, args, validation)
+│   ├─ executor.py            # validation + subprocess wrapper with timeout
+│   ├─ registry.py            # YAML/JSON command loader + validate_registry()
+│   ├─ validate.py            # `python -m app.validate` CLI
+│   ├─ client.py              # httpx client library (commands + calendar + Gitea API)
+│   ├─ registry_routes.py     # Auto-generated native routes for registry commands
+│   ├─ caldav_models.py       # Pydantic models for CalDAV events/tasks
+│   ├─ caldav_service.py      # CalDAV service (1 editable + N read-only calendars)
+│   ├─ caldav_routes.py       # FastAPI router for /tasks (CalDAV-specific)
+│   ├─ ics_models.py          # Pydantic models for ICS feed config
+│   ├─ ics_service.py         # ICS feed fetcher, parser, cache
+│   ├─ ics_routes.py          # ICS service singleton management
+│   ├─ unified_routes.py      # Unified /events, /calendars router across providers
+│   ├─ provider_adapters.py   # CalDAVProvider, ICSProvider adapters
+│   ├─ providers.py           # Global provider registry
+│   ├─ gitea_models.py        # Pydantic models for Gitea resources
+│   ├─ gitea_service.py       # Gitea API service (issues, PRs, branches, releases)
+│   ├─ gitea_routes.py        # FastAPI router for /issues, /prs, /branches, etc.
+│   ├─ notify_models.py       # Pydantic models for notifications
+│   ├─ notify_service.py      # Discord + Ntfy notify providers
+│   ├─ notify_routes.py       # FastAPI router for /notify
+│   ├─ weather_models.py      # Pydantic models for weather config
+│   ├─ weather_service.py     # Open-Meteo API client
+│   ├─ weather_routes.py      # FastAPI router for /weather
+│   └─ jobs.py                # Lightweight background job scheduler
+├─ registry/                  # command definitions (one file per command)
+│   ├─ log.yaml               # logging command
+│   └─ log_read.yaml          # read log tail
+├─ scripts/                   # helper scripts referenced by registry YAMLs
+│   ├─ log.sh                 # append to log file
+│   ├─ log_read.sh            # read log tail
+│   └─ config.sh.example      # template (unused in Docker; for reference)
+├─ tests/                     # pytest test suite
 │   ├─ conftest.py
 │   ├─ test_models.py
 │   ├─ test_executor.py
@@ -331,42 +415,73 @@ mcp_server/
 │   ├─ test_client.py
 │   ├─ test_auth.py
 │   ├─ test_caldav.py
-│   └─ test_gitea.py
-├─ docker-compose.yml     # easy local run with volumes
-├─ .env.example           # Docker env var template (webhook URL, etc.)
-├─ .dockerignore          # excludes venv, secrets, tests, etc.
-├─ pyproject.toml         # package metadata + pytest config
-└─ requirements.txt
+│   ├─ test_ics.py
+│   ├─ test_ics_recurrence.py
+│   ├─ test_gitea.py
+│   ├─ test_notify.py
+│   ├─ test_weather.py
+│   ├─ test_logging.py
+│   ├─ test_jobs.py
+│   └─ test_conditional_endpoints.py
+├─ plans/                     # design plans for features (forward-looking)
+├─ Dockerfile                 # multi-arch base image definition
+├─ variants/                  # variant Dockerfiles (PHP, Node, etc.)
+│   ├─ Dockerfile.php
+│   └─ Dockerfile.node
+├─ docker-compose.yml         # easy local run with volumes
+├─ .env.example               # environment variable template
+├─ .dockerignore              # excludes venv, secrets, tests, etc.
+├─ pyproject.toml             # package metadata + pytest/ruff config
+└─ requirements.txt           # pip dependencies (used by Dockerfile)
 ```
 
-## Discord setup
+## Configuration
 
-The `discord` command wraps `scripts/discord.sh`, which sends messages to
-Discord via a webhook.  To use it you need a webhook URL from your Discord
-server:
+All configuration is via environment variables.  See `.env.example`
+for a complete reference with comments.  The server reads these at
+startup and conditionally registers endpoints.
 
-**Server Settings → Integrations → Webhooks → New Webhook**
-
-The URL must end with `?wait=true`.
-
-### Local setup
-
-```bash
-cp scripts/config.sh.example scripts/config.sh
-# Edit scripts/config.sh and set DISCORD_INFO_HOOK / DISCORD_NOTICE_HOOK
-docker compose up -d   # or uvicorn directly
-```
-
-`discord.sh` reads `config.sh` from its own directory, so the file must be
-at `scripts/config.sh`.  If `config.sh` is missing, the script falls back
-to environment variables (`DISCORD_INFO_HOOK`, etc.).
+| Variable                       | Feature        | Description                                    |
+|--------------------------------|----------------|------------------------------------------------|
+| `MCP_API_KEY`                  | Auth           | API key for endpoints (unset = open access)    |
+| `MCP_REGISTRY_DIR`             | Registry       | Custom registry directory                      |
+| `MCP_LOG_FILE`                 | Logging        | Log file path                                  |
+| `MCP_LOG_DIR`                  | Logging        | Log directory (file is `mcp.log` inside)       |
+| `MCP_LOG_LEVEL`                | Logging        | Log level (default: INFO)                      |
+| `MCP_LOG_ENABLED`              | Logging        | Set to `false` to disable log commands         |
+| `CALDAV_URL`                   | CalDAV         | CalDAV server URL                              |
+| `CALDAV_USERNAME`              | CalDAV         | CalDAV username                                |
+| `CALDAV_PASSWORD`              | CalDAV         | CalDAV password                                |
+| `CALDAV_EDITABLE_CALENDAR`     | CalDAV         | Editable calendar name (unset = all read-only) |
+| `CALDAV_READONLY_CALENDARS`    | CalDAV         | Comma-separated read-only calendar names       |
+| `ICS_CALENDAR_URL`             | ICS            | Read-only ICS feed URL                         |
+| `ICS_CALENDAR_NAME`            | ICS            | Display name for ICS feed                      |
+| `ICS_REFRESH_INTERVAL`         | ICS            | Cache refresh interval in seconds (default 300)|
+| `GITEA_URL`                    | Gitea          | Gitea server URL                               |
+| `GITEA_TOKEN`                  | Gitea          | API token                                      |
+| `GITEA_DEFAULT_OWNER`          | Gitea          | Default repo owner                             |
+| `GITEA_DEFAULT_REPO`           | Gitea          | Default repo name                              |
+| `MCP_GITEA_EXTRA_TOOLS`        | Gitea          | Expose niche endpoints in OpenAPI schema       |
+| `DISCORD_*_HOOK`               | Notify         | Discord webhook URLs (per severity level)      |
+| `DISCORD_SERVER_NAME`          | Notify         | Bot display name override                      |
+| `DISCORD_TITLE_SUFFIX`         | Notify         | Title suffix for Discord messages              |
+| `NTFY_URL`                     | Notify         | Ntfy server URL                                |
+| `NTFY_*_TOPIC`                 | Notify         | Ntfy topics (per severity level)               |
+| `NTFY_TOKEN`                   | Notify         | Ntfy access token                              |
+| `NTFY_USERNAME` / `NTFY_PASSWORD` | Notify      | Ntfy basic auth                                |
+| `NTFY_TITLE_SUFFIX`            | Notify         | Title suffix for ntfy messages                 |
+| `WEATHER_LOCATION`             | Weather        | "lat,long" for weather data                    |
+| `TZ`                           | Server         | Timezone (defaults to UTC)                     |
 
 ## CalDAV Calendar
 
-The server can connect to a CalDAV server (e.g. Radicale, Baikal, Nextcloud)
-to manage calendar events and tasks.  The design uses **one editable
-calendar** (where events and tasks can be created, updated, and deleted)
-and **multiple read-only calendars** (visible but not writable).
+The server can connect to a CalDAV server (e.g. Radicale, Baikal,
+Nextcloud) to manage calendar events and tasks.  The design uses **one
+editable calendar** (where events and tasks can be created, updated, and
+deleted) and **multiple read-only calendars** (visible but not writable).
+
+When `CALDAV_EDITABLE_CALENDAR` is not set, all calendars are read-only
+and no create/update/delete endpoints are registered.
 
 All events and tasks carry an `editable` flag and `calendar_name`, so the
 model can see the full unified calendar view but is isolated from
@@ -374,20 +489,19 @@ accidentally modifying calendars it shouldn't touch.
 
 ### Configuration
 
-Set these environment variables (or uncomment in `.env`):
-
 ```
 CALDAV_URL=https://caldav.example.com/dav
 CALDAV_USERNAME=user
 CALDAV_PASSWORD=secret
-CALDAV_EDITABLE_CALENDAR=Lyra
+# Optional: set to make a calendar writable.  When unset, all calendars
+# are read-only and write endpoints are not registered.
+#CALDAV_EDITABLE_CALENDAR=MyCalendar
 # Optional: comma-separated list of read-only calendar names to include.
 # If empty, all calendars except the editable one are included as read-only.
-CALDAV_READONLY_CALENDARS=Personal,Work
+#CALDAV_READONLY_CALENDARS=Personal,Work
 ```
 
-When `CALDAV_URL` is not set, all calendar endpoints return `503 Service
-Unavailable`.
+When `CALDAV_URL` is not set, calendar endpoints are not registered.
 
 ### Features
 
@@ -397,56 +511,34 @@ Unavailable`.
   priority, due date, and status management.
 - **Connection recovery:** if the CalDAV server becomes unreachable
   mid-operation, the service automatically resets its connection and
-  retries once.
+  retries once.  Catches `DAVError`, `ConnectionError`, `TimeoutError`,
+  and `OSError`.
 - **Calendar caching:** the calendar list is fetched once per connection
   and cached, avoiding redundant server round-trips.
 - **Explicit UUIDs:** created events and tasks always get a `uuid4` UID,
   guaranteeing they can be updated or deleted immediately after creation.
 
-### Client library
+## ICS Calendar (read-only)
 
-The `MCPClient` also provides typed convenience methods for the calendar
-API:
+The server can merge a read-only ICS calendar feed (e.g. Outlook
+published calendar, Google Calendar iCal) into the unified `/events`
+endpoint alongside CalDAV events.
 
-```python
-from app.client import MCPClient
-
-mc = MCPClient("http://127.0.0.1:8000", api_key="your-secret-key")
-
-# List calendars
-cals = mc.list_calendars()
-for cal in cals["calendars"]:
-    print(f"  {cal['name']} {'✏️' if cal['editable'] else '👁️'}")
-
-# List events in a date range
-events = mc.list_events(start="2026-01-01", end="2026-02-01")
-for ev in events["events"]:
-    print(f"  {ev['start']} {ev['summary']}")
-
-# Create an event
-mc.create_event(
-    summary="Team standup",
-    start="2026-01-15T09:00:00",
-    end="2026-01-15T09:30:00",
-)
-
-# Create a task
-mc.create_task(summary="Review PR", priority=3, due="2026-01-20")
-
-# Update a task status
-mc.update_task("<uid>", status="COMPLETED")
-
-# Delete
-mc.delete_event("<uid>")
-mc.delete_task("<uid>")
 ```
+ICS_CALENDAR_URL=https://outlook.office365.com/owa/calendar/.../calendar.ics
+ICS_CALENDAR_NAME=Work
+ICS_REFRESH_INTERVAL=300  # seconds (default 300, minimum 30)
+```
+
+The ICS feed is fetched and cached on startup, then refreshed
+periodically by a background job.  Use `POST /calendars/refresh` to
+manually trigger a cache refresh.
 
 ## Gitea Integration
 
 The server can connect to a Gitea instance to manage repositories,
 issues, pull requests, branches, releases, and CI actions. When
-`GITEA_URL` is not set, all Gitea endpoints return `503 Service
-Unavailable`.
+`GITEA_URL` is not set, Gitea endpoints are not registered.
 
 ### Configuration
 
@@ -461,6 +553,19 @@ Issue, branch, PR, and release endpoints accept optional `owner` and
 `repo` query parameters that default to the configured values. Repository
 info, commits, and compare endpoints use path parameters
 (`/repos/{owner}/{repo}/...`).
+
+## Notify
+
+The server can send notifications via Discord webhooks and/or Ntfy.
+Multiple providers can be active simultaneously — a `/notify` call fans
+out to all configured providers.
+
+Discord webhooks are configured per severity level (`info`, `notice`,
+`critical`, `emergency`).  If a level isn't configured, the system falls
+back to the nearest lower configured level.
+
+Ntfy works similarly with topics per severity level.  Authentication
+supports either token-based or basic auth.
 
 ## Logging
 
@@ -492,23 +597,8 @@ The log file path is determined by (in priority order):
 
 Parent directories are created automatically if they don't exist.
 
-### Docker setup
-
-For Docker, use environment variables instead of `config.sh`:
-
-```bash
-cp .env.example .env
-# Edit .env and set at least one DISCORD_*_HOOK
-docker compose up -d
-```
-
-The `.env` file is loaded by `docker-compose.yml` and the environment
-variables are picked up by the notify service automatically.  At least
-one `DISCORD_*_HOOK` is required; levels fall back to the nearest lower
-configured level.
-
-Alternatively, you can mount a `config.sh` file (see the commented volume
-in `docker-compose.yml`).
+Set `MCP_LOG_ENABLED=false` to disable logging entirely — the `log` and
+`log_read` commands won't be registered and their routes won't exist.
 
 ## Docker
 
@@ -548,17 +638,16 @@ docker compose up -d
 | Mount              | Purpose                                                  |
 |--------------------|----------------------------------------------------------|
 | `/app/registry`    | Command definitions — override or extend at runtime.     |
-| `/app/scripts/config.sh` | Optional: file-based config for discord.sh.        |
 | `/tmp/mcp`         | Default log file location (or set MCP_LOG_FILE).        |
 
-The `scripts/` directory (including `discord.sh`) is baked into the image.
+The `scripts/` directory (including `log.sh`) is baked into the image.
 Secrets are never baked in — provide them via environment variables
-(`--env-file .env`) or by mounting `config.sh` as a read-only volume.
+(`--env-file .env`).
 
 ### Image details
 
 - **Base**: `python:3.12-slim` (multi-arch)
-- **System deps**: `curl`, `jq` (for `discord.sh` and similar tools), `tini`
+- **System deps**: `curl`, `jq` (for scripts), `tini`
 - **Runs as**: non-root user `mcp` (uid 1000)
 - **Entrypoint**: `tini` (proper PID-1 signal handling)
 
@@ -591,10 +680,6 @@ docker run -p 8000:8000 \
   mcp-server:php
 ```
 
-The base image already includes `php_eval.yaml` and `node_run.yaml` in the
-baked-in registry. These commands will only execute successfully in the
-matching variant image (the runtime must be present).
-
 **Creating your own variant:**
 
 ```dockerfile
@@ -612,7 +697,8 @@ Then add a `registry/ruby_eval.yaml` pointing at `/usr/bin/ruby`.
 
 The project includes a comprehensive pytest suite covering models,
 executor, registry, API endpoints, client library, authentication,
-CalDAV calendar operations, and Gitea integration.
+CalDAV operations, ICS parsing, Gitea integration, notify, weather,
+logging, background jobs, and conditional endpoint registration.
 
 ```bash
 # Install dev dependencies
@@ -628,24 +714,11 @@ pytest -v
 pytest tests/test_executor.py
 ```
 
-### Test layout
-
-```
-tests/
-├─ conftest.py          # shared fixtures (temp registry dirs, TestClient)
-├─ test_models.py       # ArgSpec, CommandSchema, ValidationResult
-├─ test_executor.py     # _cast, _validate_and_build, run_command
-├─ test_registry.py     # _load_file, load_registry, validate_registry
-├─ test_api.py          # HTTP endpoints via FastAPI TestClient
-├─ test_client.py       # MCPClient via ASGI transport
-├─ test_auth.py         # API key authentication (enabled/disabled/edge cases)
-├─ test_caldav.py       # CalDAV models, service, API endpoints, client (mocked)
-├─ test_gitea.py        # Gitea models, service, API endpoints, client (mocked)
-└─ test_registry_routes.py # Registry route generation, model building, field aliasing
-```
-
-The flag-default regression (discord's `-q` defaulting to `true`) is
+The flag-default regression (e.g. a flag with `default: true`) is
 covered by `test_executor.py::TestValidateAndBuild::test_flag_default_true_*`.
+
+The executor's timeout and process-group kill logic is tested in
+`test_executor.py`.
 
 ## Security notes
 
@@ -653,13 +726,17 @@ covered by `test_executor.py::TestValidateAndBuild::test_flag_default_true_*`.
   arbitrary-command endpoint.
 - Arguments are validated (type, required, choices) before the subprocess is
   spawned, and unknown arguments are rejected.
-- Every command has a hard 30 s timeout.
+- Every command has a hard 30 s timeout with process-group kill.
 - **API key authentication** — set `MCP_API_KEY` to require an `X-API-Key`
-  header on all endpoints except `/health`.  When unset, the server is open.
+  header on all endpoints except `/api/health` and `/api/about`.  When
+  unset, the server is open.
+- Error messages are sanitized — internal details are logged server-side
+  but not exposed in HTTP responses (important since errors flow back
+  into the LLM's context window).
 - Run the server under a limited user account; do not grant it sudo.
 - Commands that allow introspection of the server filesystem or arbitrary
-  code execution (e.g. `list_files`, `php_eval`, `node_run`) have been
-  removed by design — only specific, allowed commands should be registered.
+  code execution have been removed by design — only specific, allowed
+  commands should be registered.
 
 ---
 

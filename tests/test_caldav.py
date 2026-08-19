@@ -74,7 +74,7 @@ class TestCalDAVConfig:
 
         config = CalDAVConfig.from_env()
         assert config is not None
-        assert config.editable_calendar == "Lyra"
+        assert config.editable_calendar is None
         assert config.username == ""
         assert config.password == ""
 
@@ -241,51 +241,20 @@ class TestCalDAVAuthIntegration:
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> TestClient:
         """A TestClient with MCP_API_KEY set and CalDAV configured."""
-        import importlib
-
         monkeypatch.setenv("MCP_API_KEY", "secret")
         monkeypatch.setenv("CALDAV_URL", "https://caldav.example.com")
         monkeypatch.setenv("CALDAV_USERNAME", "user")
         monkeypatch.setenv("CALDAV_PASSWORD", "pass")
         monkeypatch.setenv("CALDAV_EDITABLE_CALENDAR", "Lyra")
 
-        # Reload auth and all route modules so they pick up the new key
-        for mod_name in [
-            "app.auth", "app.caldav_routes", "app.gitea_routes",
-            "app.ics_routes", "app.unified_routes", "app.registry_routes",
-            "app.provider_adapters", "app.main",
-        ]:
-            importlib.sys.modules.pop(mod_name, None)
-
-        import app.auth
-        import app.caldav_routes
-        import app.gitea_routes
-        import app.ics_routes
-        import app.main
-        import app.registry_routes
-        import app.unified_routes
+        # Auth now reads MCP_API_KEY per-request, so no module reload needed.
         from app.caldav_routes import _reset_service
         _reset_service()
 
-        app = app.main.create_app()
+        from app.main import create_app
+        app = create_app()
         with TestClient(app) as c:
             yield c
-
-        # Cleanup: restore auth module to no-key state
-        monkeypatch.delenv("MCP_API_KEY", raising=False)
-        for mod_name in [
-            "app.auth", "app.caldav_routes", "app.gitea_routes",
-            "app.ics_routes", "app.unified_routes", "app.registry_routes",
-            "app.provider_adapters", "app.main",
-        ]:
-            importlib.sys.modules.pop(mod_name, None)
-        import app.auth
-        import app.caldav_routes
-        import app.gitea_routes
-        import app.ics_routes
-        import app.main
-        import app.registry_routes
-        import app.unified_routes
 
     def test_calendars_requires_auth(self, auth_client: TestClient) -> None:
         resp = auth_client.get("/calendars")
@@ -1078,6 +1047,58 @@ class TestConnectionRecovery:
         assert attempts == 1  # no retry
         service._reset_connection.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "exc_cls",
+        [
+            ConnectionError,
+            TimeoutError,
+            OSError,
+        ],
+    )
+    def test_recovery_retries_on_network_errors(self, exc_cls) -> None:
+        """ConnectionError, TimeoutError, and OSError should trigger retry."""
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+
+        mock_lyra = MagicMock()
+        mock_lyra.get_display_name.return_value = "Lyra"
+        mock_lyra.url = "https://caldav.example.com/lyra"
+
+        service = CalDAVService(config)
+        service._calendars_cache = None
+
+        attempts = 0
+
+        def mock_get_all():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise exc_cls("network hiccup")
+            return [mock_lyra]
+
+        service._get_all_calendars = mock_get_all
+        reset_called = False
+
+        def tracking_reset():
+            nonlocal reset_called
+            reset_called = True
+            service._calendars_cache = None
+
+        service._reset_connection = tracking_reset
+
+        result = service.list_calendars()
+        assert reset_called is True
+        assert attempts == 2
+        assert len(result) == 1
+        assert result[0].name == "Lyra"
+
 
 class TestExtractComponent:
     """Tests for the _extract_component shared helper."""
@@ -1222,7 +1243,7 @@ class TestClientCalendarMethods:
 
         result = mc.list_calendars()
         assert result["editable_count"] == 1
-        mc._client.get.assert_called_with("/calendars")
+        mc._client.get.assert_called_with("/calendars", params=None)
 
     def test_list_events_with_params(self) -> None:
         from app.client import MCPClient
@@ -1262,7 +1283,7 @@ class TestClientCalendarMethods:
 
         result = mc.get_event("evt-1")
         assert result["uid"] == "evt-1"
-        mc._client.get.assert_called_with("/events/evt-1")
+        mc._client.get.assert_called_with("/events/evt-1", params=None)
 
     def test_create_event(self) -> None:
         from app.client import MCPClient
@@ -1301,7 +1322,7 @@ class TestClientCalendarMethods:
 
         result = mc.delete_event("evt-1")
         assert result["deleted"] is True
-        mc._client.delete.assert_called_with("/events/evt-1")
+        mc._client.delete.assert_called_with("/events/evt-1", params=None)
 
     def test_list_tasks(self) -> None:
         from app.client import MCPClient
@@ -1313,7 +1334,7 @@ class TestClientCalendarMethods:
 
         result = mc.list_tasks()
         assert result["total"] == 0
-        mc._client.get.assert_called_with("/tasks")
+        mc._client.get.assert_called_with("/tasks", params=None)
 
     def test_get_task(self) -> None:
         from app.client import MCPClient
@@ -1325,7 +1346,7 @@ class TestClientCalendarMethods:
 
         result = mc.get_task("task-1")
         assert result["uid"] == "task-1"
-        mc._client.get.assert_called_with("/tasks/task-1")
+        mc._client.get.assert_called_with("/tasks/task-1", params=None)
 
     def test_create_task(self) -> None:
         from app.client import MCPClient
@@ -1364,7 +1385,7 @@ class TestClientCalendarMethods:
 
         result = mc.delete_task("task-1")
         assert result["deleted"] is True
-        mc._client.delete.assert_called_with("/tasks/task-1")
+        mc._client.delete.assert_called_with("/tasks/task-1", params=None)
 
 
 class TestDeleteTaskEndpoint:

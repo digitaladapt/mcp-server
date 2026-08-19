@@ -245,6 +245,21 @@ def _parse_branch(data: dict[str, Any]) -> BranchInfo:
     )
 
 
+def _parse_repo(data: dict[str, Any]) -> RepoDetail:
+    return RepoDetail(
+        name=data.get("name", ""),
+        full_name=data.get("full_name", ""),
+        description=data.get("description"),
+        default_branch=data.get("default_branch"),
+        private=data.get("private", False),
+        stars=data.get("stars_count", 0),
+        forks=data.get("forks_count", 0),
+        open_issues=data.get("open_issues_count", 0),
+        html_url=data.get("html_url"),
+        clone_url=data.get("clone_url"),
+    )
+
+
 # --------------------------------------------------------------------------- #
 # Service class
 # --------------------------------------------------------------------------- #
@@ -317,7 +332,7 @@ class GiteaService:
             detail = resp.text
             try:
                 detail = resp.json().get("message", resp.text)
-            except Exception:  # noqa: BLE001, S110
+            except ValueError:
                 pass
             raise GiteaError(f"API error {resp.status_code}: {detail}")
 
@@ -825,18 +840,3 @@ class GiteaService:
         return _parse_compare(data, base, head)
 
 
-# Need this import at the bottom to avoid circular ref at module load
-# (RepoDetail is defined above but referenced in method signatures)
-def _parse_repo(data: dict[str, Any]) -> RepoDetail:
-    return RepoDetail(
-        name=data.get("name", ""),
-        full_name=data.get("full_name", ""),
-        description=data.get("description"),
-        default_branch=data.get("default_branch"),
-        private=data.get("private", False),
-        stars=data.get("stars_count", 0),
-        forks=data.get("forks_count", 0),
-        open_issues=data.get("open_issues_count", 0),
-        html_url=data.get("html_url"),
-        clone_url=data.get("clone_url"),
-    )

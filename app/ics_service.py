@@ -91,7 +91,7 @@ class ICSService:
         now = datetime.now(UTC)
         try:
             raw = await self._fetch()
-        except Exception as exc:  # noqa: BLE001
+        except (httpx.HTTPError, ConnectionError, TimeoutError, OSError) as exc:
             self._last_error = str(exc)
             logger.error("Failed to fetch ICS feed '%s': %s", self._config.url, exc)
             return ICSRefreshResult(
@@ -103,7 +103,7 @@ class ICSService:
 
         try:
             cal, events = self._parse(raw)
-        except Exception as exc:  # noqa: BLE001
+        except (ValueError, KeyError, TypeError) as exc:
             self._last_error = str(exc)
             logger.error("Failed to parse ICS feed: %s", exc)
             return ICSRefreshResult(
@@ -283,7 +283,7 @@ class ICSService:
             expanded = recurring_ical_events.of(
                 self._calendar, keep_recurrence_attributes=True,
             ).between(query_start, query_end)
-        except Exception as exc:  # noqa: BLE001
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:
             logger.warning("Recurrence expansion failed, falling back to flat: %s", exc)
             return self._list_events_flat(start, end)
 
@@ -419,7 +419,7 @@ class ICSService:
                 expanded = recurring_ical_events.of(
                     self._calendar, keep_recurrence_attributes=True,
                 ).between(window_start, window_end)
-            except Exception as exc:  # noqa: BLE001
+            except (ValueError, KeyError, TypeError, AttributeError) as exc:
                 logger.warning("Recurrence expansion for get_event failed: %s", exc)
                 return None
             name = self._config.name

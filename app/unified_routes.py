@@ -25,10 +25,13 @@ All endpoints require API key authentication when MCP_API_KEY is set.
 
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from starlette.concurrency import run_in_threadpool
+
+logger = logging.getLogger(__name__)
 
 from .auth import verify_api_key
 from .caldav_models import (
@@ -140,10 +143,12 @@ def create_unified_router(
             svc = _get_caldav_service()
             try:
                 return await run_in_threadpool(svc.create_event, req)
-            except CalDAVError as exc:
-                raise HTTPException(status_code=502, detail=str(exc))
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=502, detail=f"Calendar error: {exc}")
+            except CalDAVError:
+                logger.exception("CalDAV error creating event")
+                raise HTTPException(status_code=502, detail="Calendar service error")
+            except Exception:
+                logger.exception("Unexpected error creating event")
+                raise HTTPException(status_code=502, detail="Calendar service error")
 
         @router.put("/events/{uid}", response_model=CalendarEvent)
         async def update_event(uid: str, req: UpdateEventRequest) -> CalendarEvent:
@@ -154,10 +159,12 @@ def create_unified_router(
             svc = _get_caldav_service()
             try:
                 return await run_in_threadpool(svc.update_event, uid, req)
-            except CalDAVError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=502, detail=f"Calendar error: {exc}")
+            except CalDAVError:
+                logger.exception("CalDAV error updating event %s", uid)
+                raise HTTPException(status_code=400, detail="Calendar service error")
+            except Exception:
+                logger.exception("Unexpected error updating event %s", uid)
+                raise HTTPException(status_code=502, detail="Calendar service error")
 
         @router.delete("/events/{uid}", response_model=DeleteResponse)
         async def delete_event(uid: str) -> DeleteResponse:
@@ -168,10 +175,12 @@ def create_unified_router(
             svc = _get_caldav_service()
             try:
                 deleted = await run_in_threadpool(svc.delete_event, uid)
-            except CalDAVError as exc:
-                raise HTTPException(status_code=400, detail=str(exc))
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=502, detail=f"Calendar error: {exc}")
+            except CalDAVError:
+                logger.exception("CalDAV error deleting event %s", uid)
+                raise HTTPException(status_code=400, detail="Calendar service error")
+            except Exception:
+                logger.exception("Unexpected error deleting event %s", uid)
+                raise HTTPException(status_code=502, detail="Calendar service error")
             if not deleted:
                 raise HTTPException(status_code=404, detail="Event not found")
             return DeleteResponse(deleted=True, uid=uid)
@@ -189,8 +198,9 @@ def create_unified_router(
             svc = _get_ics_service()
             try:
                 result = await svc.refresh()
-            except Exception as exc:  # noqa: BLE001
-                raise HTTPException(status_code=502, detail=f"ICS error: {exc}")
+            except Exception:
+                logger.exception("ICS cache refresh failed")
+                raise HTTPException(status_code=502, detail="ICS service error")
             return {
                 "success": result.success,
                 "events_cached": result.events_cached,

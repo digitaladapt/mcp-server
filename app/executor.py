@@ -19,10 +19,13 @@ Key design decisions:
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import shlex
 import signal
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from .models import CommandSchema, ExecuteResult
 
@@ -81,7 +84,7 @@ def _validate_and_build(
             if spec.is_flag:
                 if spec.has_default and spec.default:
                     cmd.append(name)
-            elif spec.has_default:
+            elif spec.has_default and spec.default is not None:
                 if spec.is_positional:
                     cmd.append(str(spec.default))
                 else:
@@ -102,8 +105,8 @@ def _validate_and_build(
         if name not in provided:
             if spec.required:
                 raise ValueError(f"Missing required argument '{name}'")
-            # Use default if one is defined, otherwise skip.
-            if spec.has_default:
+            # Use default if one is defined and not None, otherwise skip.
+            if spec.has_default and spec.default is not None:
                 provided[name] = spec.default
             else:
                 continue
@@ -174,7 +177,7 @@ async def run_command(
             proc.communicate(),
             timeout=timeout,
         )
-    except asyncio.TimeoutExpired:
+    except TimeoutError:
         # Kill the entire process group — not just the direct child.
         # This is critical: if discord.sh spawns curl, and curl hangs,
         # killing only bash leaves curl alive as an orphan, still
@@ -189,12 +192,12 @@ async def run_command(
                 proc.communicate(),
                 timeout=2,
             )
-        except (asyncio.TimeoutExpired, Exception):  # noqa: BLE001
+        except (TimeoutError, Exception):  # noqa: BLE001
             stdout, stderr = b"", b""
 
+        logger.warning("Command timed out after %ss: %s", timeout, ' '.join(shlex.quote(c) for c in cmd))
         raise ValueError(
-            f"Command timed out after {timeout}s: "
-            f"{' '.join(shlex.quote(c) for c in cmd)}"
+            f"Command timed out after {timeout}s"
         )
 
     return ExecuteResult(
