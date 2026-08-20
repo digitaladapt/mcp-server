@@ -146,7 +146,7 @@ class WeatherService:
             "precipitation_sum,precipitation_probability_max,"
             "wind_speed_10m_max,sunrise,sunset"
             f"&forecast_days={days}"
-            "&timezone=auto"
+            "&timezone=auto&temperature_unit=fahrenheit"
         )
         return f"{_OPEN_METEO_URL}{params}"
 
