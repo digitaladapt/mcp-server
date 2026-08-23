@@ -70,7 +70,19 @@ def _parse_user(data: dict[str, Any] | None) -> IssueUser | None:
     )
 
 
+def _as_list(value: Any) -> list[Any]:
+    """Return ``value`` as a list, treating ``None`` as empty.
+
+    Gitea serializes empty collections as ``null`` rather than ``[]`` on
+    some endpoints (notably ``labels`` / ``assignees`` on PRs and issues).
+    Iterating ``None`` raises ``TypeError: 'NoneType' object is not
+    iterable``, so every collection field must be passed through here.
+    """
+    return value if isinstance(value, list) else []
+
+
 def _parse_label(data: dict[str, Any]) -> IssueLabel:
+    """Parse a label. """
     return IssueLabel(
         id=data.get("id", 0),
         name=data.get("name", ""),
@@ -94,8 +106,8 @@ def _parse_issue(data: dict[str, Any]) -> IssueDetail:
         title=data.get("title", ""),
         body=data.get("body"),
         state=data.get("state", "open"),
-        labels=[_parse_label(l) for l in data.get("labels", [])],
-        assignees=[_parse_user(u) for u in data.get("assignees", []) if u],
+        labels=[_parse_label(l) for l in _as_list(data.get("labels"))],
+        assignees=[_parse_user(u) for u in _as_list(data.get("assignees")) if u],
         milestone=_parse_milestone(data.get("milestone")),
         author=_parse_user(data.get("user")),
         created_at=data.get("created_at", ""),
@@ -107,8 +119,10 @@ def _parse_issue(data: dict[str, Any]) -> IssueDetail:
 
 
 def _parse_pr(data: dict[str, Any]) -> PRDetail:
-    head = data.get("head", {})
-    base = data.get("base", {})
+    head = data.get("head") or {}
+    base = data.get("base") or {}
+    head_repo = head.get("repo") or {}
+    base_repo = base.get("repo") or {}
     return PRDetail(
         number=data.get("number", 0),
         title=data.get("title", ""),
@@ -117,12 +131,12 @@ def _parse_pr(data: dict[str, Any]) -> PRDetail:
         merged=data.get("merged", False),
         mergeable=data.get("mergeable"),
         merge_commit_sha=data.get("merge_commit_sha"),
-        head_branch=head.get("ref", "") if head else "",
-        head_repo=head.get("repo", {}).get("full_name") if head and head.get("repo") else None,
-        base_branch=base.get("ref", "") if base else "",
-        base_repo=base.get("repo", {}).get("full_name") if base and base.get("repo") else None,
-        labels=[_parse_label(l) for l in data.get("labels", [])],
-        assignees=[_parse_user(u) for u in data.get("assignees", []) if u],
+        head_branch=head.get("ref", ""),
+        head_repo=head_repo.get("full_name"),
+        base_branch=base.get("ref", ""),
+        base_repo=base_repo.get("full_name"),
+        labels=[_parse_label(l) for l in _as_list(data.get("labels"))],
+        assignees=[_parse_user(u) for u in _as_list(data.get("assignees")) if u],
         milestone=_parse_milestone(data.get("milestone")),
         author=_parse_user(data.get("user")),
         created_at=data.get("created_at", ""),
