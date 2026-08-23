@@ -648,7 +648,6 @@ class CalDAVService:
         todo.add("dtstamp", now)
         todo.add("created", now)
         todo.add("last-modified", now)
-        todo.add("status", "NEEDS-ACTION")
 
         todo.add("summary", req.summary)
         if req.description:

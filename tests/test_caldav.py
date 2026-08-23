@@ -2468,3 +2468,114 @@ class TestTaskAlarms:
         req = UpdateTaskRequest(enable_alarms=False)
         result = svc.update_task("ta-rm", req)
         assert len(result.alarms) == 0
+
+
+# --------------------------------------------------------------------------- #
+# Regression test: duplicate STATUS property in create_task
+# --------------------------------------------------------------------------- #
+
+class TestCreateTaskNoDuplicateStatus:
+    """Regression tests for the duplicate STATUS bug.
+
+    The ``create_task`` method used to add ``STATUS:NEEDS-ACTION`` twice:
+    once unconditionally near the top, and again in the auto-manage
+    block's ``else`` branch (for the common case where
+    ``percent_complete != 100``).  Real CalDAV servers reject iCal
+    payloads with duplicate properties with a 400 Bad Request.
+    """
+
+    @pytest.fixture
+    def mock_service(self) -> tuple:
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        config = CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        )
+        service = CalDAVService(config)
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_cal.save_todo = MagicMock()
+        service._calendars_cache = [mock_cal]
+        return service, mock_cal
+
+    def test_no_duplicate_status_default(self, mock_service) -> None:
+        """Default task (no percent_complete) must not have duplicate STATUS."""
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(summary="Test task")
+        service.create_task(req)
+
+        saved_data = mock_cal.save_todo.call_args[0][0]
+        status_count = saved_data.count("STATUS:NEEDS-ACTION")
+        assert status_count == 1, (
+            f"Expected exactly 1 STATUS:NEEDS-ACTION, got {status_count}.\n"
+            f"Saved iCal:\n{saved_data}"
+        )
+
+    def test_no_duplicate_status_with_priority(self, mock_service) -> None:
+        """Task with priority but no percent_complete must not duplicate STATUS."""
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(summary="Priority task", priority=2)
+        service.create_task(req)
+
+        saved_data = mock_cal.save_todo.call_args[0][0]
+        status_count = saved_data.count("STATUS:NEEDS-ACTION")
+        assert status_count == 1, (
+            f"Expected exactly 1 STATUS:NEEDS-ACTION, got {status_count}."
+        )
+
+    def test_no_duplicate_status_with_percent(self, mock_service) -> None:
+        """Task with percent_complete < 100 must not duplicate STATUS."""
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(summary="Half done", percent_complete=50)
+        service.create_task(req)
+
+        saved_data = mock_cal.save_todo.call_args[0][0]
+        status_count = saved_data.count("STATUS:NEEDS-ACTION")
+        assert status_count == 1, (
+            f"Expected exactly 1 STATUS:NEEDS-ACTION, got {status_count}."
+        )
+
+    def test_completed_status_not_duplicated(self, mock_service) -> None:
+        """Task with percent_complete=100 should have exactly one STATUS:COMPLETED."""
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(summary="Done", percent_complete=100)
+        service.create_task(req)
+
+        saved_data = mock_cal.save_todo.call_args[0][0]
+        completed_count = saved_data.count("STATUS:COMPLETED")
+        needs_action_count = saved_data.count("STATUS:NEEDS-ACTION")
+        assert completed_count == 1, (
+            f"Expected exactly 1 STATUS:COMPLETED, got {completed_count}."
+        )
+        assert needs_action_count == 0, (
+            f"Expected 0 STATUS:NEEDS-ACTION, got {needs_action_count}."
+        )
+
+    def test_no_duplicate_status_with_due(self, mock_service) -> None:
+        """Task with due date must not duplicate STATUS."""
+        service, mock_cal = mock_service
+        from app.caldav_models import CreateTaskRequest
+
+        req = CreateTaskRequest(
+            summary="Task with due",
+            due="2026-01-20T17:00:00",
+        )
+        service.create_task(req)
+
+        saved_data = mock_cal.save_todo.call_args[0][0]
+        status_count = saved_data.count("STATUS:NEEDS-ACTION")
+        assert status_count == 1, (
+            f"Expected exactly 1 STATUS:NEEDS-ACTION, got {status_count}."
+        )
