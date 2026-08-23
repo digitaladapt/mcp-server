@@ -624,6 +624,45 @@ class TestGiteaServicePRs:
         comment = svc.create_pr_comment(7, CommentCreate(body="Review comment"))
         assert comment.id == 500
 
+    def test_list_prs_tolerates_null_labels_assignees(self) -> None:
+        # Gitea serializes empty collections as null (not []) on some PRs.
+        # A single such PR previously 500'd the whole list with
+        # TypeError: 'NoneType' object is not iterable.
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        null_field_pr = {**SAMPLE_PR, "labels": None, "assignees": None}
+        transport.set("GET", "/repos/lyra/mcp_server/pulls", [null_field_pr])
+        prs = svc.list_prs()
+        assert len(prs) == 1
+        assert prs[0].labels == []
+        assert prs[0].assignees == []
+
+    def test_get_pr_tolerates_null_head_repo(self) -> None:
+        # head.repo is null when the source repo/branch was deleted.
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        pr = {**SAMPLE_PR, "head": {"ref": "feature/x", "repo": None}}
+        transport.set("GET", "/repos/lyra/mcp_server/pulls/7", pr)
+        got = svc.get_pr(7)
+        assert got is not None
+        assert got.head_branch == "feature/x"
+        assert got.head_repo is None
+
+
+class TestGiteaServiceNullIssueFields:
+    """Regression tests: Gitea returns null (not []) for empty issue
+    collection fields."""
+
+    def test_list_issues_tolerates_null_labels_assignees(self) -> None:
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        null_field_issue = {**SAMPLE_ISSUE, "labels": None, "assignees": None}
+        transport.set("GET", "/repos/lyra/mcp_server/issues", [null_field_issue])
+        issues = svc.list_issues()
+        assert len(issues) == 1
+        assert issues[0].labels == []
+        assert issues[0].assignees == []
+
 
 class TestGiteaServiceActions:
     """Tests for GiteaService CI/Actions operations."""
