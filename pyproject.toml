@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-server"
-version = "1.0.0"
+version = "1.0.4"
 description = "Modular Command Provider — exposes CLI commands as model tools."
 requires-python = ">=3.10"
 dependencies = [

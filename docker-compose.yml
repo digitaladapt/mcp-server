@@ -14,7 +14,7 @@
 services:
   mcp-server:
     build: .
-    image: mcp-server:latest
+    image: digitaladapt/mcp-server:latest
     container_name: mcp-server
     restart: unless-stopped
     ports:

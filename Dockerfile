@@ -2,22 +2,22 @@
 # Multi-arch (amd64 + arm64) image for the Modular Command Provider.
 #
 # Build:
-#   docker build -t mcp-server:latest .
+#   docker build -t digitaladapt/mcp-server:latest .
 #
 # Multi-arch (requires buildx):
-#   docker buildx build --platform linux/amd64,linux/arm64 -t mcp-server:latest .
+#   docker buildx build --platform linux/amd64,linux/arm64 -t digitaladapt/mcp-server:latest .
 #
 # Run:
 #   docker run -p 8000:8000 \
 #     --env-file .env \
 #     -v ./registry:/app/registry \
-#     mcp-server:latest
+#     digitaladapt/mcp-server:latest
 #
 # ── Variant strategy ──────────────────────────────────────────────────
 # To create a PHP or Node variant, create a new Dockerfile that starts
-# FROM mcp-server:latest and installs the extra runtime, e.g.:
+# FROM digitaladapt/mcp-server:latest and installs the extra runtime, e.g.:
 #
-#   FROM mcp-server:latest
+#   FROM digitaladapt/mcp-server:latest
 #   RUN apt-get update && apt-get install -y --no-install-recommends \
 #       php-cli && rm -rf /var/lib/apt/lists/*
 #   # registry/*.yaml can now reference /usr/bin/php

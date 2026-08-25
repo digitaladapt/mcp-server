@@ -423,8 +423,8 @@ mcp-server/
 │   ├─ test_logging.py
 │   ├─ test_jobs.py
 │   └─ test_conditional_endpoints.py
-├─ plans/                     # design plans for features (forward-looking)
 ├─ Dockerfile                 # multi-arch base image definition
+├─ LICENSE                    # MIT license
 ├─ variants/                  # variant Dockerfiles (PHP, Node, etc.)
 │   ├─ Dockerfile.php
 │   └─ Dockerfile.node
@@ -608,13 +608,13 @@ The server ships with a multi-arch Dockerfile ready for `amd64` and
 ### Build
 
 ```bash
-docker build -t mcp-server:latest .
+docker build -t digitaladapt/mcp-server:latest .
 ```
 
 For multi-arch builds (requires `buildx`):
 
 ```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t mcp-server:latest .
+docker buildx build --platform linux/amd64,linux/arm64 -t digitaladapt/mcp-server:latest .
 ```
 
 ### Run
@@ -624,7 +624,7 @@ docker run -d --name mcp-server -p 8000:8000 \
   --env-file .env \
   -e MCP_API_KEY="your-secret-key" \
   -v ./registry:/app/registry \
-  mcp-server:latest
+  digitaladapt/mcp-server:latest
 ```
 
 Or with `docker compose`:
@@ -665,10 +665,10 @@ in `variants/` and layer additional runtimes on top:
 
 ```bash
 # PHP
-docker build -f variants/Dockerfile.php -t mcp-server:php .
+docker build -f variants/Dockerfile.php -t digitaladapt/mcp-server:php .
 
 # Node.js
-docker build -f variants/Dockerfile.node -t mcp-server:node .
+docker build -f variants/Dockerfile.node -t digitaladapt/mcp-server:node .
 ```
 
 **Run a variant:**
@@ -677,14 +677,14 @@ docker build -f variants/Dockerfile.node -t mcp-server:node .
 docker run -p 8000:8000 \
   --env-file .env \
   -v ./registry:/app/registry \
-  mcp-server:php
+  digitaladapt/mcp-server:php
 ```
 
 **Creating your own variant:**
 
 ```dockerfile
 # variants/Dockerfile.ruby
-FROM mcp-server:latest
+FROM digitaladapt/mcp-server:latest
 USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ruby && rm -rf /var/lib/apt/lists/*

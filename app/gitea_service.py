@@ -7,7 +7,7 @@ comparison.
 Configuration is read from environment variables via
 :class:`~app.gitea_models.GiteaConfig`:
 
-  GITEA_URL              – Gitea server URL (e.g. https://code.devgnome.com)
+  GITEA_URL              – Gitea server URL (e.g. https://code.example.com)
   GITEA_TOKEN            – API access token
   GITEA_DEFAULT_OWNER    – default repo owner
   GITEA_DEFAULT_REPO     – default repo name

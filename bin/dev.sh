@@ -21,13 +21,16 @@
 #   bin/dev.sh restart   Stop and start the dev server
 #
 # Port assignment (M-C-P = 6-2-7):
-#   8627 → https://mcp.lyra-dev.devgnome.com
+#   8627 → https://${MCP_DEV_URL:-mcp.example.com}
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
 # ── Configuration ───────────────────────────────────────────────────────────
 PORT=8627
 HOST="0.0.0.0"
+# Public URL of the dev server, if behind a reverse proxy.  Override with the
+# MCP_DEV_URL environment variable in your shell profile (e.g. ~/.bashrc).
+DEV_URL="${MCP_DEV_URL:-mcp.example.com}"
 VENV_DIR=".venv-dev"
 PID_FILE="var/.dev-server.pid"
 LOG_FILE="var/log/dev-server.log"
@@ -71,7 +74,7 @@ print_status() {
         echo "   PID:     $pid"
         echo "   URL:     http://localhost:${PORT}"
         echo "   Exposed: http://${HOST}:${PORT}"
-        echo "   Dev URL: https://mcp.lyra-dev.devgnome.com"
+        echo "   Dev URL: https://${DEV_URL}"
         echo "   Venv:    ${VENV_DIR}"
         echo "   Logs:    ${LOG_FILE}"
     else
