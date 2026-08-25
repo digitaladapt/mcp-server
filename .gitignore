@@ -17,6 +17,9 @@ env/
 # Dev server artifacts
 var/
 
+# Design plans (kept local, not published)
+plans/
+
 # IDE / editor
 .vscode/
 .idea/
