@@ -103,7 +103,7 @@ def create_caldav_router(*, include_write: bool = True) -> APIRouter:
         return TaskListResponse(tasks=tasks, total=len(tasks))
 
     @router.get("/tasks/{uid}", response_model=CalendarTask)
-    async def get_task(uid: str) -> CalendarTask:
+    async def get_task_by_uid(uid: str) -> CalendarTask:
         """Get a task by UID."""
         svc = _get_service()
         try:
