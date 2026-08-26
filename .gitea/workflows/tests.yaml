@@ -1,14 +1,14 @@
-# .gitea/workflows/ci.yml — runs lint + tests on every push and PR.
+# .gitea/workflows/tests.yaml — runs lint + tests on every push and PR.
 #
 # Gitea Actions is GitHub-compatible, so this uses the standard
 # actions/checkout and actions/setup-python syntax.
 
-name: CI
+name: Tests
 
 on:
   push:
     branches: [main, feature/*]
-  pull_request:
+  pull_request_target:
     branches: [main]
 
 permissions:
