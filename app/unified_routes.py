@@ -110,7 +110,7 @@ def create_unified_router(
             return EventListResponse(events=events, total=len(events))
 
         @router.get("/events/{uid}", response_model=CalendarEvent)
-        async def get_event(uid: str) -> CalendarEvent:
+        async def get_event_by_uid(uid: str) -> CalendarEvent:
             """Get a single event by UID across all providers."""
             event = await run_in_threadpool(provider_registry.get_event, uid)
             if event is None:

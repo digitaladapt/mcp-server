@@ -248,6 +248,10 @@ def create_registry_router() -> APIRouter:
             handler.__name__ = f"{cmd_schema.name}_command"
             handler.__qualname__ = f"registry_routes.{cmd_schema.name}_command"
             handler.__annotations__ = {"req": req_model, "return": ExecuteResult}
+            # Tag the handler with its registry command name so the
+            # operation-ID generator (app.tool_names) can surface this
+            # tool as ``<command_name>`` instead of ``<command_name>_command``.
+            handler._registry_command = cmd_schema.name  # type: ignore[attr-defined]
             return handler
 
         _handler = _make_handler()

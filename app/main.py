@@ -55,6 +55,7 @@ from .provider_adapters import CalDAVProvider, ICSProvider
 from .providers import provider_registry, reset_provider_registry
 from .registry import get_command_schema, list_commands, validate_registry
 from .registry_routes import create_registry_router
+from .tool_names import make_operation_id_factory
 
 # Configure logging so registry warnings (and any other log messages)
 # are visible alongside uvicorn's output.
@@ -239,7 +240,18 @@ def create_app() -> FastAPI:
         description="Modular Command Provider – exposes CLI commands as model tools.",
         version=__version__,
         lifespan=lifespan,
+        generate_unique_id_function=make_operation_id_factory(),
     )
+
+    # Fail fast on duplicate tool names.
+    #
+    # FastAPI's ``generate_unique_id`` is normally invoked *lazily*, only
+    # when the OpenAPI schema is first requested (e.g. /openapi.json).  We
+    # want tool-name collisions to abort startup instead — so force schema
+    # generation here.  Any two routes resolving to the same operation ID
+    # (tool name) raise ``DuplicateToolNameError`` before the server ever
+    # starts serving.
+    app.openapi()
 
     # ------------------------------------------------------------------ #
     # Unified calendar endpoints (conditional)

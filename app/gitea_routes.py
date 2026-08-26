@@ -210,7 +210,7 @@ async def list_issues(
 
 
 @router.get("/issues/{index}", response_model=IssueDetail)
-async def get_issue(
+async def get_issue_by_index(
     index: int,
     owner: str | None = Query(None),
     repo: str | None = Query(None),
@@ -365,7 +365,7 @@ async def list_prs(
 
 
 @router.get("/prs/{index}", response_model=PRDetail)
-async def get_pr(
+async def get_pr_by_index(
     index: int,
     owner: str | None = Query(None),
     repo: str | None = Query(None),
@@ -527,7 +527,7 @@ async def list_releases(
 
 
 @router.get("/releases/{release_id}", response_model=ReleaseDetail)
-async def get_release(
+async def get_release_by_id(
     release_id: int,
     owner: str | None = Query(None),
     repo: str | None = Query(None),
