@@ -484,10 +484,19 @@ class GiteaService:
         *,
         owner: str | None = None,
         repo: str | None = None,
-    ) -> list[BranchInfo]:
-        """List branches in the repository."""
+    ) -> list[BranchInfo] | None:
+        """List branches in the repository.
+
+        Returns ``None`` when the repository (or project) does not exist so
+        callers can translate that into a 404 instead of a generic error.
+        """
         path = f"{self._repo_path(owner, repo)}/branches"
-        data = self._request("GET", path)
+        try:
+            data = self._request("GET", path)
+        except GiteaError as exc:
+            if "Not found" in str(exc):
+                return None
+            raise
         if data is None:
             return []
         return [_parse_branch(d) for d in data]
