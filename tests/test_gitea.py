@@ -192,6 +192,7 @@ class MockTransport(httpx.BaseTransport):
     def __init__(self) -> None:
         self.responses: dict[tuple[str, str], Any] = {}
         self.calls: list[tuple[str, str, dict[str, Any] | None]] = []
+        self.full_urls: list[str] = []
 
     def set(self, method: str, url: str, response: Any, status_code: int = 200) -> None:
         """Set a response for a method+URL combination."""
@@ -205,6 +206,7 @@ class MockTransport(httpx.BaseTransport):
         url = url.replace("https://code.example.com/api/v1", "")
 
         self.calls.append((method, url, json.loads(request.content) if request.content else None))
+        self.full_urls.append(str(request.url))
 
         key = (method, url)
         if key not in self.responses:
@@ -762,17 +764,85 @@ class TestGiteaServiceRepo:
         transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server", SAMPLE_REPO)
         repo = svc.get_repo()
+        assert repo is not None
         assert repo.name == "mcp_server"
         assert repo.full_name == "lyra/mcp_server"
         assert repo.default_branch == "main"
         assert repo.stars == 5
 
+    def test_get_repo_not_found_returns_none(self) -> None:
+        svc = make_service()
+        # No canned response — MockTransport auto-returns 404.
+        repo = svc.get_repo(owner="nope", repo="nope")
+        assert repo is None
+
     def test_list_repos(self) -> None:
         svc = make_service()
         transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/user/repos", [SAMPLE_REPO])
-        repos = svc.list_repos()
+        repos, total = svc.list_repos()
         assert len(repos) == 1
+        assert total == 1
+        assert repos[0].full_name == "lyra/mcp_server"
+
+    def test_list_repos_passes_pagination_params(self) -> None:
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        transport.set("GET", "/user/repos", [SAMPLE_REPO])
+        _repos, total = svc.list_repos(page=2, limit=10)
+        assert total == 1
+        method = transport.calls[-1][0]
+        assert method == "GET"
+        assert "page=2" in transport.full_urls[-1] and "limit=10" in transport.full_urls[-1]
+
+    def test_list_repos_filters_by_query(self) -> None:
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        other = {**SAMPLE_REPO, "name": "other", "full_name": "lyra/other"}
+        transport.set("GET", "/user/repos", [SAMPLE_REPO, other])
+        repos, total = svc.list_repos(query="mcp")
+        assert total == 1
+        assert repos[0].name == "mcp_server"
+
+    def test_list_repos_filters_by_owner(self) -> None:
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        other = {**SAMPLE_REPO, "full_name": "other/mcp_server"}
+        transport.set("GET", "/user/repos", [SAMPLE_REPO, other])
+        repos, total = svc.list_repos(owner="lyra")
+        assert total == 1
+        assert repos[0].full_name == "lyra/mcp_server"
+
+    def test_search_repos(self) -> None:
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        payload = {"total_count": 3, "data": [SAMPLE_REPO]}
+        transport.set("GET", "/repos/search", payload)
+        repos, total = svc.search_repos("mcp")
+        assert total == 3
+        assert len(repos) == 1
+        assert repos[0].full_name == "lyra/mcp_server"
+        method = transport.calls[-1][0]
+        assert method == "GET"
+        assert "q=mcp" in transport.full_urls[-1]
+
+    def test_search_repos_passes_owner_and_pagination(self) -> None:
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        transport.set("GET", "/repos/search", {"total_count": 0, "data": []})
+        _repos, total = svc.search_repos("mcp", owner="public", page=2, limit=25)
+        assert total == 0
+        method = transport.calls[-1][0]
+        assert method == "GET"
+        assert "owner=public" in transport.full_urls[-1]
+        assert "page=2" in transport.full_urls[-1] and "limit=25" in transport.full_urls[-1]
+
+    def test_search_repos_handles_bare_list_response(self) -> None:
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        transport.set("GET", "/repos/search", [SAMPLE_REPO])
+        repos, total = svc.search_repos("mcp")
+        assert total == 1
         assert repos[0].full_name == "lyra/mcp_server"
 
     def test_list_commits(self) -> None:
@@ -1136,12 +1206,71 @@ class TestGiteaRoutesRepo:
         assert resp.status_code == 200
         assert resp.json()["full_name"] == "lyra/mcp_server"
 
+    def test_get_repo_not_found_returns_404(
+        self, mock_gitea_service: Any, gitea_client: TestClient
+    ) -> None:
+        """A non-existent repo returns 404 (not 502/500)."""
+        # Search returns nothing so no suggestion is appended.
+        transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
+        transport.set("GET", "/repos/search", {"total_count": 0, "data": []})
+        resp = gitea_client.get("/repos/nope/nope")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"]
+
+    def test_get_repo_404_with_did_you_mean(
+        self, mock_gitea_service: Any, gitea_client: TestClient
+    ) -> None:
+        """404 includes a cross-owner 'did you mean' suggestion."""
+        transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
+        transport.set(
+            "GET", "/repos/search",
+            {"total_count": 1, "data": [{**SAMPLE_REPO, "full_name": "public/mcp_server"}]},
+        )
+        resp = gitea_client.get("/repos/lyra/mcp_server")
+        assert resp.status_code == 404
+        assert "public/mcp_server" in resp.json()["detail"]
+
     def test_list_repos(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/user/repos", [SAMPLE_REPO])
         resp = gitea_client.get("/user/repos")
         assert resp.status_code == 200
-        assert resp.json()["total"] == 1
+        body = resp.json()
+        assert body["total"] == 1
+        assert body["page"] == 1
+        assert body["limit"] == 50
+        assert body["page_count"] == 1
+
+    def test_list_repos_passes_pagination(
+        self, mock_gitea_service: Any, gitea_client: TestClient
+    ) -> None:
+        transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
+        transport.set("GET", "/user/repos", [SAMPLE_REPO])
+        resp = gitea_client.get("/user/repos", params={"page": 3, "limit": 10})
+        assert resp.status_code == 200
+        assert resp.json()["page"] == 3
+        assert resp.json()["limit"] == 10
+        # The request should have hit the mocked upstream with page/limit params.
+        assert "page=3" in transport.full_urls[-1]
+
+    def test_search_repos(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
+        transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
+        transport.set("GET", "/repos/search", {"total_count": 2, "data": [SAMPLE_REPO]})
+        resp = gitea_client.get("/repos/search", params={"q": "mcp"})
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["total"] == 2
+        assert body["repos"][0]["full_name"] == "lyra/mcp_server"
+
+    def test_search_repos_filters_by_owner(
+        self, mock_gitea_service: Any, gitea_client: TestClient
+    ) -> None:
+        transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
+        transport.set("GET", "/repos/search", {"total_count": 0, "data": []})
+        resp = gitea_client.get("/repos/search", params={"q": "mcp", "owner": "public"})
+        assert resp.status_code == 200
+        # Confirm the owner param was forwarded upstream.
+        assert "owner=public" in transport.full_urls[-1]
 
     def test_list_commits(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]

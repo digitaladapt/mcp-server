@@ -66,6 +66,7 @@ class TestCleanOperationIDs:
         assert ids["list_prs"] == "/prs"
         assert ids["list_releases"] == "/releases"
         assert ids["list_repos"] == "/user/repos"
+        assert ids["search_repos"] == "/repos/search"
         assert ids["list_calendars"] == "/calendars"
 
     def test_verb_names(self, app):
