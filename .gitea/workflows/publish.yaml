@@ -3,7 +3,11 @@ name: Sync GitHub
 on:
   push:
     branches:
-      - '**'
+      - 'main'
+      - 'feat*'
+      - 'fix*'
+      - 'cleanup*'
+      - 'chore*'
 
 jobs:
   sync:

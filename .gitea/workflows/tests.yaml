@@ -7,9 +7,15 @@ name: Tests
 
 on:
   push:
-    branches: [main, feature/*]
+    branches:
+      - 'main'
+      - 'feat*'
+      - 'fix*'
+      - 'cleanup*'
+      - 'chore*'
   pull_request_target:
-    branches: [main]
+    branches:
+      - 'main'
 
 permissions:
   contents: read
