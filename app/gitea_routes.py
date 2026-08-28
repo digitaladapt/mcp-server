@@ -373,6 +373,8 @@ async def list_branches(
     except GiteaError:
         logger.exception("Gitea service error")
         raise HTTPException(status_code=502, detail="Gitea service error")
+    if branches is None:
+        raise HTTPException(status_code=404, detail="Repository not found")
     return BranchListResponse(branches=branches, total=len(branches))
 
 

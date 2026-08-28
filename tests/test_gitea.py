@@ -537,6 +537,13 @@ class TestGiteaServiceBranches:
         result = svc.delete_branch("nonexistent")
         assert result is False
 
+    def test_list_branches_repo_not_found_returns_none(self) -> None:
+        """A 404 from the upstream (repo/project doesn't exist) surfaces as None."""
+        svc = make_service()
+        # No canned response — MockTransport auto-returns 404 for unmatched paths.
+        branches = svc.list_branches(owner="nope", repo="nope")
+        assert branches is None
+
 
 class TestGiteaServicePRs:
     """Tests for GiteaService pull request operations."""
@@ -1073,6 +1080,14 @@ class TestGiteaRoutesBranches:
         resp = gitea_client.get("/branches")
         assert resp.status_code == 200
         assert resp.json()["total"] == 1
+
+    def test_list_branches_repo_not_found_returns_404(
+        self, mock_gitea_service: Any, gitea_client: TestClient
+    ) -> None:
+        """Listing branches for a non-existent project returns 404, not 502/500."""
+        resp = gitea_client.get("/branches", params={"owner": "nope", "repo": "nope"})
+        assert resp.status_code == 404
+        assert resp.json()["detail"] == "Repository not found"
 
     def test_create_branch(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
