@@ -78,7 +78,7 @@ features will be present.
 | Method | Path                 | Description                                  |
 |--------|----------------------|----------------------------------------------|
 | GET    | `/api/health`        | Liveness probe (no auth required)            |
-| GET    | `/api/about`         | App name & version (no auth required)         |
+| GET    | `/api/about`         | App name & version (no auth required)        |
 | GET    | `/commands`          | List all registered commands                 |
 | GET    | `/commands/{name}`   | Retrieve one command's schema                |
 | GET    | `/validate`          | Validate all registry files (detailed report) |
@@ -111,16 +111,10 @@ features will be present.
 
 | Method | Path                 | Description                                  |
 |--------|----------------------|----------------------------------------------|
-| GET    | `/repos/{owner}/{repo}` | Get repository info                      |
+| GET    | `/repos/{owner}/{repo}` | Get repository info                       |
 | GET    | `/user/repos`        | List accessible repositories                 |
-| GET    | `/repos/{owner}/{repo}/commits` | List recent commits                |
-| GET    | `/repos/{owner}/{repo}/compare` | Compare two refs (extra tools)      |
-| GET    | `/issues`            | List issues (default repo or owner/repo)     |
-| GET    | `/issues/{index}`   | Get a single issue by number                  |
-| POST   | `/issues`            | Create a new issue                           |
-| PATCH  | `/issues/{index}`   | Update an issue (e.g. close it)              |
-| GET    | `/issues/{index}/comments` | List comments on an issue             |
-| POST   | `/issues/{index}/comments` | Comment on an issue                  |
+| GET    | `/repos/{owner}/{repo}/commits` | List recent commits               |
+| GET    | `/repos/{owner}/{repo}/compare` | Compare two refs (extra tools)    |
 | GET    | `/branches`          | List branches (default repo or owner/repo)   |
 | POST   | `/branches`          | Create a new branch                          |
 | DELETE | `/branches/{name}`   | Delete a branch                              |
@@ -129,10 +123,28 @@ features will be present.
 | GET    | `/prs/{index}`       | Get a single PR                              |
 | PATCH  | `/prs/{index}`       | Update a PR (e.g. close it)                  |
 | POST   | `/prs/{index}/merge` | Merge a pull request                         |
-| GET    | `/prs/{index}/reviews` | List reviews on a PR (extra tools)        |
+| GET    | `/prs/{index}/reviews` | List reviews on a PR (extra tools)         |
 | POST   | `/prs/{index}/comments` | Comment on a PR                           |
 | GET    | `/actions`           | List CI workflow runs                        |
-| GET    | `/commits/{sha}/statuses` | Get CI status checks (extra tools)     |
+| GET    | `/commits/{sha}/statuses` | Get CI status checks (extra tools)      |
+
+> **Issues:** `/issues`, `/issues/...`, and `/issues/.../comments`.
+> Set `MCP_GITEA_ISSUES=1` to expose them.
+
+| Method | Path                 | Description                                  |
+|--------|----------------------|----------------------------------------------|
+| GET    | `/issues`            | List issues (default repo or owner/repo)     |
+| GET    | `/issues/{index}`   | Get a single issue by number                  |
+| POST   | `/issues`            | Create a new issue                           |
+| PATCH  | `/issues/{index}`   | Update an issue (e.g. close it)               |
+| GET    | `/issues/{index}/comments` | List comments on an issue              |
+| POST   | `/issues/{index}/comments` | Comment on an issue                    |
+
+> **Releases:** `/releases` and `/releases/...`.
+> Set `MCP_GITEA_RELEASES=1` to expose them.
+
+| Method | Path                 | Description                                  |
+|--------|----------------------|----------------------------------------------|
 | GET    | `/releases`          | List releases                                |
 | POST   | `/releases`          | Create a release                             |
 | GET    | `/releases/{release_id}` | Get a single release                     |

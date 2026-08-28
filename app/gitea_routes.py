@@ -1,11 +1,11 @@
 """FastAPI router for Gitea integration endpoints.
 
 Core endpoints (always in OpenAPI schema):
-  GET    /repos/search                     – search repos instance-wide
-  GET    /repos/{owner}/{repo}           – get repo info
-  GET    /user/repos                      – list accessible repos (paginated)
+  GET    /repos/search                    – search repos instance-wide
+  GET    /repos/{owner}/{repo}            – get repo info
   GET    /repos/{owner}/{repo}/commits    – list commits
 
+Opt-in endpoints (set MCP_GITEA_ISSUES=1 to include in schema):
   GET    /issues                          – list issues (default repo)
   GET    /issues/{index}                  – get a single issue
   POST   /issues                          – create an issue
@@ -26,6 +26,7 @@ Core endpoints (always in OpenAPI schema):
 
   GET    /actions                         – list CI workflow runs
 
+Opt-in endpoints (set MCP_GITEA_RELEASES=1 to include in schema):
   GET    /releases                        – list releases
   GET    /releases/{id}                   – get a single release
   POST   /releases                        – create a release
@@ -91,6 +92,8 @@ router = APIRouter(prefix="", tags=["gitea"], dependencies=[Depends(verify_api_k
 import os as _os
 
 _extra_tools = _os.environ.get("MCP_GITEA_EXTRA_TOOLS", "").strip().lower() in ("1", "true", "yes")
+_issues_tools = _os.environ.get("MCP_GITEA_ISSUES", "").strip().lower() in ("1", "true", "yes")
+_releases_tools = _os.environ.get("MCP_GITEA_RELEASES", "").strip().lower() in ("1", "true", "yes")
 
 # Singleton service — lazily initialised from env vars.
 _service: GiteaService | None = None
@@ -196,29 +199,29 @@ def _suggest_repo(owner: str, repo: str) -> str:
     return f" Did you mean {', '.join(matches)}?"
 
 
-@router.get("/user/repos", response_model=RepoListResponse)
-async def list_repos(
-    page: int = Query(1, ge=1),
-    limit: int = Query(50, ge=1, le=100),
-    query: str | None = Query(None, description="Filter by name/description"),
-    owner: str | None = Query(None, description="Filter by owner/org"),
-) -> RepoListResponse:
-    """List accessible repos (token's own), with pagination/filtering."""
-    svc = _get_service()
-    try:
-        repos, total = await run_in_threadpool(
-            svc.list_repos, page=page, limit=limit, query=query, owner=owner,
-        )
-    except GiteaError:
-        logger.exception("Gitea service error")
-        raise HTTPException(status_code=502, detail="Gitea service error")
-    return RepoListResponse(
-        repos=repos,
-        total=total,
-        page=page,
-        page_count=max(1, -(-total // limit)) if total else 1,
-        limit=limit,
-    )
+###@router.get("/user/repos", response_model=RepoListResponse)
+###async def list_repos(
+###    page: int = Query(1, ge=1),
+###    limit: int = Query(50, ge=1, le=100),
+###    query: str | None = Query(None, description="Filter by name/description"),
+###    owner: str | None = Query(None, description="Filter by owner/org"),
+###) -> RepoListResponse:
+###    """List accessible repos (token's own), with pagination/filtering."""
+###    svc = _get_service()
+###    try:
+###        repos, total = await run_in_threadpool(
+###            svc.list_repos, page=page, limit=limit, query=query, owner=owner,
+###        )
+###    except GiteaError:
+###        logger.exception("Gitea service error")
+###        raise HTTPException(status_code=502, detail="Gitea service error")
+###    return RepoListResponse(
+###        repos=repos,
+###        total=total,
+###        page=page,
+###        page_count=max(1, -(-total // limit)) if total else 1,
+###        limit=limit,
+###    )
 
 
 @router.get("/repos/{owner}/{repo}/commits", response_model=CommitListResponse)
@@ -254,7 +257,7 @@ async def compare_refs(owner: str, repo: str, base: str, head: str) -> CompareRe
 # Issue endpoints (default repo)
 # --------------------------------------------------------------------------- #
 
-@router.get("/issues", response_model=IssueListResponse)
+@router.get("/issues", response_model=IssueListResponse, include_in_schema=_issues_tools)
 async def list_issues(
     state: str = Query("open", description="State filter"),
     labels: str | None = Query(None, description="Label names"),
@@ -276,7 +279,7 @@ async def list_issues(
     return IssueListResponse(issues=issues, total=len(issues))
 
 
-@router.get("/issues/{index}", response_model=IssueDetail)
+@router.get("/issues/{index}", response_model=IssueDetail, include_in_schema=_issues_tools)
 async def get_issue_by_index(
     index: int,
     owner: str | None = Query(None),
@@ -294,7 +297,7 @@ async def get_issue_by_index(
     return issue
 
 
-@router.post("/issues", response_model=IssueDetail, status_code=201)
+@router.post("/issues", response_model=IssueDetail, status_code=201, include_in_schema=_issues_tools)
 async def create_issue(
     req: IssueCreate,
     owner: str | None = Query(None),
@@ -309,7 +312,7 @@ async def create_issue(
         raise HTTPException(status_code=502, detail="Gitea service error")
 
 
-@router.patch("/issues/{index}", response_model=IssueDetail)
+@router.patch("/issues/{index}", response_model=IssueDetail, include_in_schema=_issues_tools)
 async def update_issue(
     index: int,
     req: IssueUpdate,
@@ -325,7 +328,7 @@ async def update_issue(
         raise HTTPException(status_code=400, detail="Gitea service error")
 
 
-@router.get("/issues/{index}/comments", response_model=CommentListResponse)
+@router.get("/issues/{index}/comments", response_model=CommentListResponse, include_in_schema=_issues_tools)
 async def list_issue_comments(
     index: int,
     owner: str | None = Query(None),
@@ -341,7 +344,7 @@ async def list_issue_comments(
     return CommentListResponse(comments=comments, total=len(comments))
 
 
-@router.post("/issues/{index}/comments", response_model=CommentDetail, status_code=201)
+@router.post("/issues/{index}/comments", response_model=CommentDetail, status_code=201, include_in_schema=_issues_tools)
 async def create_issue_comment(
     index: int,
     req: CommentCreate,
@@ -578,7 +581,7 @@ async def get_commit_statuses(
 # Release endpoints
 # --------------------------------------------------------------------------- #
 
-@router.get("/releases", response_model=ReleaseListResponse)
+@router.get("/releases", response_model=ReleaseListResponse, include_in_schema=_releases_tools)
 async def list_releases(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
@@ -595,7 +598,7 @@ async def list_releases(
     return ReleaseListResponse(releases=releases, total=len(releases))
 
 
-@router.get("/releases/{release_id}", response_model=ReleaseDetail)
+@router.get("/releases/{release_id}", response_model=ReleaseDetail, include_in_schema=_releases_tools)
 async def get_release_by_id(
     release_id: int,
     owner: str | None = Query(None),
@@ -613,7 +616,7 @@ async def get_release_by_id(
     return release
 
 
-@router.post("/releases", response_model=ReleaseDetail, status_code=201)
+@router.post("/releases", response_model=ReleaseDetail, status_code=201, include_in_schema=_releases_tools)
 async def create_release(
     req: ReleaseCreate,
     owner: str | None = Query(None),
@@ -628,7 +631,7 @@ async def create_release(
         raise HTTPException(status_code=502, detail="Gitea service error")
 
 
-@router.patch("/releases/{release_id}", response_model=ReleaseDetail)
+@router.patch("/releases/{release_id}", response_model=ReleaseDetail, include_in_schema=_releases_tools)
 async def update_release(
     release_id: int,
     req: ReleaseUpdate,
@@ -644,7 +647,7 @@ async def update_release(
         raise HTTPException(status_code=400, detail="Gitea service error")
 
 
-@router.delete("/releases/{release_id}", response_model=DeleteResponse)
+@router.delete("/releases/{release_id}", response_model=DeleteResponse, include_in_schema=_releases_tools)
 async def delete_release(
     release_id: int,
     owner: str | None = Query(None),
