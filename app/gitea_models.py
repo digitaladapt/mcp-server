@@ -20,6 +20,7 @@ class GiteaConfig(BaseModel):
     token: str
     default_owner: str
     default_repo: str
+    search_endpoint: str = "/repos/search"
 
     @classmethod
     def from_env(cls) -> GiteaConfig | None:
@@ -36,12 +37,14 @@ class GiteaConfig(BaseModel):
         token = os.environ.get("GITEA_TOKEN", "")
         owner = os.environ.get("GITEA_DEFAULT_OWNER", "")
         repo = os.environ.get("GITEA_DEFAULT_REPO", "")
+        search_endpoint = os.environ.get("GITEA_SEARCH_ENDPOINT", "/repos/search")
 
         return cls(
             url=url,
             token=token,
             default_owner=owner,
             default_repo=repo,
+            search_endpoint=search_endpoint,
         )
 
 
@@ -427,6 +430,9 @@ class RepoListResponse(BaseModel):
     """Response for listing repos."""
     repos: list[RepoDetail]
     total: int
+    page: int = 1
+    page_count: int = 1
+    limit: int = 50
 
 
 class CommitListResponse(BaseModel):

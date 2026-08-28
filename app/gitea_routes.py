@@ -1,8 +1,9 @@
 """FastAPI router for Gitea integration endpoints.
 
 Core endpoints (always in OpenAPI schema):
+  GET    /repos/search                     – search repos instance-wide
   GET    /repos/{owner}/{repo}           – get repo info
-  GET    /user/repos                      – list accessible repos
+  GET    /user/repos                      – list accessible repos (paginated)
   GET    /repos/{owner}/{repo}/commits    – list commits
 
   GET    /issues                          – list issues (default repo)
@@ -131,27 +132,93 @@ def _reset_service() -> None:
 # Repository endpoints
 # --------------------------------------------------------------------------- #
 
+@router.get("/repos/search", response_model=RepoListResponse)
+async def search_repos(
+    q: str = Query("", description="Search query (name, description)"),
+    owner: str | None = Query(None, description="Filter by owner/org"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+) -> RepoListResponse:
+    """Search repos across the whole Gitea instance."""
+    svc = _get_service()
+    try:
+        repos, total = await run_in_threadpool(
+            svc.search_repos, q, owner=owner, page=page, limit=limit,
+        )
+    except GiteaError:
+        logger.exception("Gitea service error")
+        raise HTTPException(status_code=502, detail="Gitea service error")
+    return RepoListResponse(
+        repos=repos,
+        total=total,
+        page=page,
+        page_count=max(1, -(-total // limit)) if total else 1,
+        limit=limit,
+    )
+
+
 @router.get("/repos/{owner}/{repo}", response_model=RepoDetail)
 async def get_repo(owner: str, repo: str) -> RepoDetail:
     """Get repo info."""
     svc = _get_service()
     try:
-        return await run_in_threadpool(svc.get_repo, owner=owner, repo=repo)
+        info = await run_in_threadpool(svc.get_repo, owner=owner, repo=repo)
     except GiteaError:
         logger.exception("Gitea service error")
         raise HTTPException(status_code=502, detail="Gitea service error")
+    if info is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Repository {owner}/{repo} not found."
+            + _suggest_repo(owner, repo),
+        )
+    return info
+
+
+def _suggest_repo(owner: str, repo: str) -> str:
+    """Look for repos whose name matches, to suggest a correction on a 404.
+
+    Uses the server's search endpoint so it works across owners (e.g.
+    ``lyra/foo`` 404s but ``public/foo`` exists -> "did you mean").
+    Returns an empty string when nothing useful is found or search fails.
+    """
+    try:
+        suggestions, _total = _get_service().search_repos(repo, limit=5)
+    except GiteaError:
+        return ""
+    matches = [
+        s.full_name
+        for s in suggestions
+        if s.name.lower() == repo.lower() and s.full_name.lower() != f"{owner}/{repo}".lower()
+    ]
+    if not matches:
+        return ""
+    return f" Did you mean {', '.join(matches)}?"
 
 
 @router.get("/user/repos", response_model=RepoListResponse)
-async def list_repos() -> RepoListResponse:
-    """List accessible repos."""
+async def list_repos(
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=100),
+    query: str | None = Query(None, description="Filter by name/description"),
+    owner: str | None = Query(None, description="Filter by owner/org"),
+) -> RepoListResponse:
+    """List accessible repos (token's own), with pagination/filtering."""
     svc = _get_service()
     try:
-        repos = await run_in_threadpool(svc.list_repos)
+        repos, total = await run_in_threadpool(
+            svc.list_repos, page=page, limit=limit, query=query, owner=owner,
+        )
     except GiteaError:
         logger.exception("Gitea service error")
         raise HTTPException(status_code=502, detail="Gitea service error")
-    return RepoListResponse(repos=repos, total=len(repos))
+    return RepoListResponse(
+        repos=repos,
+        total=total,
+        page=page,
+        page_count=max(1, -(-total // limit)) if total else 1,
+        limit=limit,
+    )
 
 
 @router.get("/repos/{owner}/{repo}/commits", response_model=CommitListResponse)
