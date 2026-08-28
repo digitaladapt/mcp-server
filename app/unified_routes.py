@@ -99,7 +99,7 @@ def create_unified_router(
             start: str | None = Query(None, description="ISO 8601 start datetime/date"),
             end: str | None = Query(None, description="ISO 8601 end datetime/date"),
         ) -> EventListResponse:
-            """List events across all calendar providers."""
+            """List calendar events."""
             start_dt = _parse_dt_param(start)
             end_dt = _parse_dt_param(end)
             events = await run_in_threadpool(
@@ -111,7 +111,7 @@ def create_unified_router(
 
         @router.get("/events/{uid}", response_model=CalendarEvent)
         async def get_event_by_uid(uid: str) -> CalendarEvent:
-            """Get a single event by UID across all providers."""
+            """Get a single calendar event by UID."""
             event = await run_in_threadpool(provider_registry.get_event, uid)
             if event is None:
                 raise HTTPException(status_code=404, detail="Event not found")
@@ -119,7 +119,7 @@ def create_unified_router(
 
         @router.get("/calendars", response_model=CalendarListResponse)
         async def list_calendars() -> CalendarListResponse:
-            """List all accessible calendars with editability info."""
+            """List calendars with editability flag."""
             cals = await run_in_threadpool(provider_registry.list_all_calendars)
             editable = [c for c in cals if c.editable]
             readonly = [c for c in cals if not c.editable]
@@ -136,7 +136,7 @@ def create_unified_router(
     if include_write:
         @router.post("/events", response_model=CalendarEvent, status_code=201)
         async def create_event(req: CreateEventRequest) -> CalendarEvent:
-            """Create a new event on the editable calendar."""
+            """Create a new calendar event."""
             from .caldav_routes import _get_service as _get_caldav_service
             from .caldav_service import CalDAVError
 
@@ -152,7 +152,7 @@ def create_unified_router(
 
         @router.put("/events/{uid}", response_model=CalendarEvent)
         async def update_event(uid: str, req: UpdateEventRequest) -> CalendarEvent:
-            """Update an existing event on the editable calendar."""
+            """Update an existing calendar event."""
             from .caldav_routes import _get_service as _get_caldav_service
             from .caldav_service import CalDAVError
 
@@ -168,7 +168,7 @@ def create_unified_router(
 
         @router.delete("/events/{uid}", response_model=DeleteResponse)
         async def delete_event(uid: str) -> DeleteResponse:
-            """Delete an event from the editable calendar."""
+            """Delete a calendar event."""
             from .caldav_routes import _get_service as _get_caldav_service
             from .caldav_service import CalDAVError
 

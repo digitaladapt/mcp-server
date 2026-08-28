@@ -27,33 +27,12 @@ def create_weather_router() -> APIRouter:
 
     @router.get("/weather", response_model=WeatherResponse)
     async def get_weather(
-        days: str | None = Query(
-            default=None,
-            description="Number of forecast days (1–7). Defaults to 1. "
-                        "Invalid values are silently discarded.",
-        ),
+        days: int | None = Query(1, ge=1, le=7, description="Days to forecast"),
     ) -> WeatherResponse:
-        """Get current weather and forecast for the configured location.
-
-        Returns current conditions plus a multi-day forecast.  The
-        response structure is identical regardless of the number of days
-        requested — only the length of the ``forecast`` list changes.
-
-        The ``days`` parameter accepts an integer (1–7).  Values outside
-        this range are clamped.  Non-integer or missing values default
-        to 1.  No error is ever returned for bad input.
-        """
-        # Parse days silently: any non-integer value becomes None → 1.
-        parsed_days: int | None = None
-        if days is not None:
-            try:
-                parsed_days = int(days)
-            except (ValueError, TypeError):
-                parsed_days = None
-
+        "Get current weather and days of forecast."
         svc = get_weather_service()
         try:
-            return await run_in_threadpool(svc.get_weather, _clamp_days(parsed_days))
+            return await run_in_threadpool(svc.get_weather, _clamp_days(days))
         except WeatherError as exc:
             return JSONResponse(
                 status_code=502,
