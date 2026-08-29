@@ -92,7 +92,7 @@ class TestAuthEnabled:
     ) -> None:
         resp = auth_client.get("/commands")
         assert resp.status_code == 401
-        assert "Missing X-API-Key header" in resp.json()["detail"]
+        assert "Missing credentials" in resp.json()["detail"]
 
     def test_commands_with_wrong_key_returns_403(
         self, auth_client: TestClient,
@@ -148,6 +148,96 @@ class TestAuthEnabled:
             "/commands/log",
             headers={"X-API-Key": "test-secret-key"},
         )
+        assert resp.status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# Authorization: Bearer header support
+# --------------------------------------------------------------------------- #
+
+class TestBearerAuth:
+    """The Authorization: Bearer <key> header is accepted as an alternative."""
+
+    def test_bearer_with_correct_key_returns_200(self, auth_client: TestClient) -> None:
+        resp = auth_client.get(
+            "/commands",
+            headers={"Authorization": "Bearer test-secret-key"},
+        )
+        assert resp.status_code == 200
+
+    def test_bearer_with_wrong_key_returns_403(self, auth_client: TestClient) -> None:
+        resp = auth_client.get(
+            "/commands",
+            headers={"Authorization": "Bearer wrong"},
+        )
+        assert resp.status_code == 403
+        assert "Invalid API key" in resp.json()["detail"]
+
+    def test_bearer_scheme_is_case_insensitive(self, auth_client: TestClient) -> None:
+        """Per RFC 9110, the auth scheme is matched case-insensitively."""
+        resp = auth_client.get(
+            "/commands",
+            headers={"Authorization": "beAREr test-secret-key"},
+        )
+        assert resp.status_code == 200
+
+    def test_bearer_extra_whitespace_is_tolerated(self, auth_client: TestClient) -> None:
+        resp = auth_client.get(
+            "/commands",
+            headers={"Authorization": "Bearer   test-secret-key  "},
+        )
+        assert resp.status_code == 200
+
+    def test_bearer_empty_token_returns_401(self, auth_client: TestClient) -> None:
+        resp = auth_client.get("/commands", headers={"Authorization": "Bearer"})
+        assert resp.status_code == 401
+
+    def test_non_bearer_scheme_returns_401(self, auth_client: TestClient) -> None:
+        """Alternative schemes (Basic, Digest, ...) are not accepted."""
+        resp = auth_client.get(
+            "/commands",
+            headers={"Authorization": "Basic dGVzdDp0ZXN0"},
+        )
+        assert resp.status_code == 401
+
+    def test_x_api_key_takes_precedence_over_bearer(self, auth_client: TestClient) -> None:
+        """Valid X-API-Key succeeds even when the Bearer token is wrong."""
+        resp = auth_client.get(
+            "/commands",
+            headers={
+                "X-API-Key": "test-secret-key",
+                "Authorization": "Bearer wrong",
+            },
+        )
+        assert resp.status_code == 200
+
+    def test_invalid_x_api_key_does_not_fall_back_to_bearer(
+        self, auth_client: TestClient,
+    ) -> None:
+        """An invalid X-API-Key is rejected even with a valid Bearer token."""
+        resp = auth_client.get(
+            "/commands",
+            headers={
+                "X-API-Key": "wrong",
+                "Authorization": "Bearer test-secret-key",
+            },
+        )
+        assert resp.status_code == 403
+
+    def test_bearer_ignored_when_auth_disabled(self, no_auth_client: TestClient) -> None:
+        """In open mode, a bogus Bearer token must not cause a rejection."""
+        resp = no_auth_client.get(
+            "/commands",
+            headers={"Authorization": "Bearer whatever"},
+        )
+        assert resp.status_code == 200
+
+    def test_bearer_works_on_protected_endpoints(self, auth_client: TestClient) -> None:
+        """Spot-check Bearer auth on endpoints other than /commands."""
+        headers = {"Authorization": "Bearer test-secret-key"}
+        assert auth_client.get("/validate", headers=headers).status_code == 200
+        assert auth_client.get("/commands/log", headers=headers).status_code == 200
+        resp = auth_client.post("/log", json={"message": "test"}, headers=headers)
         assert resp.status_code == 200
 
 
