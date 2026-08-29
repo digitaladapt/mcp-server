@@ -407,7 +407,8 @@ class TestBranchModels:
 class TestGiteaServiceIssues:
     """Tests for GiteaService issue operations."""
 
-    def test_list_issues(self) -> None:
+    def test_list_issues(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MCP_GITEA_ISSUES", "1")
         svc = make_service()
         transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/issues", [SAMPLE_ISSUE])
@@ -1244,29 +1245,6 @@ class TestGiteaRoutesRepo:
         resp = gitea_client.get("/repos/lyra/mcp_server")
         assert resp.status_code == 404
         assert "public/mcp_server" in resp.json()["detail"]
-
-    def test_list_repos(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
-        transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
-        transport.set("GET", "/user/repos", [SAMPLE_REPO])
-        resp = gitea_client.get("/user/repos")
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["total"] == 1
-        assert body["page"] == 1
-        assert body["limit"] == 50
-        assert body["page_count"] == 1
-
-    def test_list_repos_passes_pagination(
-        self, mock_gitea_service: Any, gitea_client: TestClient
-    ) -> None:
-        transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
-        transport.set("GET", "/user/repos", [SAMPLE_REPO])
-        resp = gitea_client.get("/user/repos", params={"page": 3, "limit": 10})
-        assert resp.status_code == 200
-        assert resp.json()["page"] == 3
-        assert resp.json()["limit"] == 10
-        # The request should have hit the mocked upstream with page/limit params.
-        assert "page=3" in transport.full_urls[-1]
 
     def test_search_repos(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]

@@ -641,41 +641,13 @@ class TestWeatherEndpoint:
             resp = weather_app_client.get("/weather?days=7")
         assert resp.status_code == 200
 
-    def test_get_weather_days_0_defaults_to_1(self, weather_app_client):
-        """days=0 is silently clamped to 1 — no error."""
+    @pytest.mark.parametrize("raw", ["0", "-5", "100", "abc", "2.9"])
+    def test_get_weather_days_invalid_rejected(self, weather_app_client, raw):
+        """Out-of-range or non-integer days are rejected with 422 (no fallback)."""
         with patch("app.weather_service.httpx.get") as mock_get:
             mock_get.return_value = httpx_mock_response(SAMPLE_API_RESPONSE_1DAY)
-            resp = weather_app_client.get("/weather?days=0")
-        assert resp.status_code == 200
-        assert len(resp.json()["forecast"]) == 1
-
-    def test_get_weather_days_negative_defaults_to_1(self, weather_app_client):
-        with patch("app.weather_service.httpx.get") as mock_get:
-            mock_get.return_value = httpx_mock_response(SAMPLE_API_RESPONSE_1DAY)
-            resp = weather_app_client.get("/weather?days=-5")
-        assert resp.status_code == 200
-
-    def test_get_weather_days_above_7_clamped(self, weather_app_client):
-        with patch("app.weather_service.httpx.get") as mock_get:
-            mock_get.return_value = httpx_mock_response(SAMPLE_API_RESPONSE_1DAY)
-            resp = weather_app_client.get("/weather?days=100")
-        assert resp.status_code == 200
-
-    def test_get_weather_days_non_integer_defaults(self, weather_app_client):
-        """Non-integer days value is silently discarded → defaults to 1."""
-        with patch("app.weather_service.httpx.get") as mock_get:
-            mock_get.return_value = httpx_mock_response(SAMPLE_API_RESPONSE_1DAY)
-            resp = weather_app_client.get("/weather?days=abc")
-        assert resp.status_code == 200
-        assert len(resp.json()["forecast"]) == 1
-
-    def test_get_weather_days_float_truncated(self, weather_app_client):
-        """Float '2.9' is parsed as int(2.9)=2 via int()."""
-        with patch("app.weather_service.httpx.get") as mock_get:
-            mock_get.return_value = httpx_mock_response(SAMPLE_API_RESPONSE_1DAY)
-            resp = weather_app_client.get("/weather?days=2.9")
-        # int("2.9") raises ValueError → defaults to 1.
-        assert resp.status_code == 200
+            resp = weather_app_client.get(f"/weather?days={raw}")
+        assert resp.status_code == 422
 
     def test_get_weather_no_days_param(self, weather_app_client):
         with patch("app.weather_service.httpx.get") as mock_get:
