@@ -934,6 +934,7 @@ class TestNtfyProvider:
 @pytest.fixture
 def dual_notify_client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     """A TestClient with both Discord and Ntfy configured (mocked HTTP)."""
+    monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
     monkeypatch.setenv("DISCORD_INFO_HOOK", "https://discord.com/api/webhooks/123/info?wait=true")
     monkeypatch.setenv("DISCORD_NOTICE_HOOK", "https://discord.com/api/webhooks/123/notice?wait=true")
     monkeypatch.setenv("DISCORD_CRITICAL_HOOK", "https://discord.com/api/webhooks/123/critical?wait=true")
@@ -952,7 +953,7 @@ def dual_notify_client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient,
 
     from app.main import create_app
     app = create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-API-Key": "test-secret-key"}) as client:
         yield client
 
     reset_notify_registry()
@@ -1035,7 +1036,7 @@ class TestDualProviderEndpoint:
 
         from app.main import create_app
         app = create_app()
-        with TestClient(app) as client:
+        with TestClient(app, headers={"X-API-Key": "test-secret-key"}) as client:
             with patch("app.notify_service.httpx.Client") as mock_client_cls:
                 mock_resp = MagicMock()
                 mock_resp.status_code = 200
@@ -1130,6 +1131,7 @@ class TestNotifyRegistry:
 @pytest.fixture
 def notify_client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     """A TestClient with Discord notify configured (mocked HTTP)."""
+    monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
     monkeypatch.setenv("DISCORD_INFO_HOOK", "https://discord.com/api/webhooks/123/info?wait=true")
     monkeypatch.setenv("DISCORD_NOTICE_HOOK", "https://discord.com/api/webhooks/123/notice?wait=true")
     monkeypatch.setenv("DISCORD_CRITICAL_HOOK", "https://discord.com/api/webhooks/123/critical?wait=true")
@@ -1143,7 +1145,7 @@ def notify_client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None
 
     from app.main import create_app
     app = create_app()
-    with TestClient(app) as client:
+    with TestClient(app, headers={"X-API-Key": "test-secret-key"}) as client:
         yield client
 
     reset_notify_registry()

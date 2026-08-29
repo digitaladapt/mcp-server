@@ -13,6 +13,13 @@ unset or empty, authentication is disabled (open mode).
 The API key is read from the environment on every request so that key
 rotation takes effect immediately without a server restart.
 
+**Secrets require auth.**  When any integration secret is configured
+(a Discord webhook URL, an ntfy token/password, a CalDAV password, an
+ICS feed URL, or a Gitea token) the server *refuses to start* unless
+``MCP_API_KEY`` is also set.  Holding credentials while serving open
+endpoints is a misconfiguration that would leak them, so this is a
+hard startup failure (``RuntimeError``), not a warning.
+
 This keeps local development frictionless while allowing production
 deployments to secure the server with a simple shared secret.
 """
@@ -20,7 +27,9 @@ deployments to secure the server with a simple shared secret.
 from __future__ import annotations
 
 import os
+import re
 import secrets
+from collections.abc import Mapping
 
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import APIKeyHeader
@@ -34,6 +43,74 @@ _BEARER_PREFIX = "bearer "
 def _get_configured_key() -> str:
     """Read the API key from the environment (fresh on every call)."""
     return os.environ.get("MCP_API_KEY", "").strip()
+
+
+# Environment variables that carry (or point at) credentials worth
+# protecting.  When any of these is set to a non-empty value, the
+# server holds a secret and must require ``MCP_API_KEY``.
+#
+# - DISCORD_*_HOOK: webhook URLs embed the bot token in the path; anyone
+#   with the URL can post as the bot.
+# - NTFY_TOKEN / NTFY_PASSWORD: ntfy access token or basic-auth password.
+# - CALDAV_PASSWORD: CalDAV account password.
+# - ICS_CALENDAR_URL: published calendar feed URLs embed an unguessable
+#   token; possession of the URL is possession of the calendar.
+# - GITEA_TOKEN: Gitea API access token.
+_DISCORD_HOOK_PATTERN = re.compile(r"^DISCORD_.*_HOOK$")
+
+_SECRET_ENV_VARS = (
+    "NTFY_TOKEN",
+    "NTFY_PASSWORD",
+    "CALDAV_PASSWORD",
+    "ICS_CALENDAR_URL",
+    "GITEA_TOKEN",
+)
+
+
+def detect_configured_secrets(
+    environ: Mapping[str, str] | None = None,
+) -> list[str]:
+    """Return the names of configured env vars that hold secrets.
+
+    A variable counts as configured when it is present and non-empty
+    after stripping whitespace.  Defaults to the process environment.
+    """
+    env: Mapping[str, str] = os.environ if environ is None else environ
+    found = [
+        name for name in _SECRET_ENV_VARS
+        if env.get(name, "").strip()
+    ]
+    found.extend(
+        sorted(
+            name for name in env
+            if _DISCORD_HOOK_PATTERN.match(name) and env[name].strip()
+        )
+    )
+    return found
+
+
+def require_auth_if_secrets(environ: Mapping[str, str] | None = None) -> None:
+    """Fail fast at startup when secrets are configured but auth is not.
+
+    Raises ``RuntimeError`` listing the offending variables when any
+    secret env var is set while ``MCP_API_KEY`` is unset/empty.  Called
+    once from ``create_app()`` so a misconfigured deployment never
+    starts serving open endpoints backed by credentials.
+    """
+    secrets_found = detect_configured_secrets(environ)
+    configured_key = (
+        environ.get("MCP_API_KEY", "").strip()
+        if environ is not None
+        else _get_configured_key()
+    )
+    if secrets_found and not configured_key:
+        raise RuntimeError(
+            "Secrets are configured but MCP_API_KEY is not set. "
+            "The server refuses to hold credentials while running "
+            "without authentication. Detected: "
+            + ", ".join(secrets_found)
+            + ". Either set MCP_API_KEY or unset the variables above."
+        )
 
 
 def is_auth_enabled() -> bool:
