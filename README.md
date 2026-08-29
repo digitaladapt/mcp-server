@@ -36,7 +36,8 @@ export MCP_API_KEY="your-secret-key"
 The server now listens on `http://127.0.0.1:8000`.
 
 If `MCP_API_KEY` is set, all endpoints except `/api/health` and `/api/about`
-require an `X-API-Key` header matching the key.  If unset, the server runs
+require the key to be sent either as an `X-API-Key: <key>` header or as
+`Authorization: Bearer <key>`.  If unset, the server runs
 open (suitable for local development or trusted networks).
 
 > **Startup safety:** if nothing is configured (no calendar providers, no
@@ -187,6 +188,7 @@ Response:
 If an API key is set, include it in the header:
 ```bash
 curl -H "X-API-Key: your-secret-key" http://127.0.0.1:8000/commands
+# or: curl -H "Authorization: Bearer your-secret-key" http://127.0.0.1:8000/commands
 ```
 
 ## Validating the registry
@@ -740,8 +742,8 @@ The executor's timeout and process-group kill logic is tested in
   spawned, and unknown arguments are rejected.
 - Every command has a hard 30 s timeout with process-group kill.
 - **API key authentication** — set `MCP_API_KEY` to require an `X-API-Key`
-  header on all endpoints except `/api/health` and `/api/about`.  When
-  unset, the server is open.
+  header or an `Authorization: Bearer` token on all endpoints except
+  `/api/health` and `/api/about`.  When unset, the server is open.
 - Error messages are sanitized — internal details are logged server-side
   but not exposed in HTTP responses (important since errors flow back
   into the LLM's context window).
