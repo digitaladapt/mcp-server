@@ -44,6 +44,13 @@ class TestCleanOperationIDs:
         monkeypatch.setenv("GITEA_TOKEN", "tok")
         monkeypatch.setenv("GITEA_DEFAULT_OWNER", "lyra")
         monkeypatch.setenv("GITEA_DEFAULT_REPO", "repo")
+        # Issues/releases routes are opt-in; enable before module import so
+        # their include_in_schema flags are set.
+        monkeypatch.setenv("MCP_GITEA_ISSUES", "1")
+        monkeypatch.setenv("MCP_GITEA_RELEASES", "1")
+        import sys
+
+        sys.modules.pop("app.gitea_routes", None)
 
         from app.caldav_routes import _reset_service
         _reset_service()
@@ -65,7 +72,8 @@ class TestCleanOperationIDs:
         assert ids["list_issues"] == "/issues"
         assert ids["list_prs"] == "/prs"
         assert ids["list_releases"] == "/releases"
-        assert ids["list_repos"] == "/user/repos"
+        # list-repos (/user/repos) was removed; use search-repos instead.
+        assert "list_repos" not in ids
         assert ids["search_repos"] == "/repos/search"
         assert ids["list_calendars"] == "/calendars"
 
