@@ -331,6 +331,7 @@ class TestICSRoutesConfigured:
     def _setup_ics(self, monkeypatch: pytest.MonkeyPatch):
         """Configure ICS with a test URL and reset the singleton."""
         from app.ics_routes import _reset_service
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
         monkeypatch.setenv("ICS_CALENDAR_URL", "https://example.com/cal.ics")
         monkeypatch.setenv("ICS_CALENDAR_NAME", "Work")
         _reset_service()
@@ -342,7 +343,7 @@ class TestICSRoutesConfigured:
         """Build app with ICS configured."""
         from app.main import create_app
         app = create_app()
-        with TestClient(app) as c:
+        with TestClient(app, headers={"X-API-Key": "test-secret-key"}) as c:
             yield c
 
     def test_calendars_returns_info(self, client: TestClient) -> None:

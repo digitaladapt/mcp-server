@@ -36,6 +36,7 @@ class TestCleanOperationIDs:
 
     @pytest.fixture
     def app(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
         monkeypatch.setenv("CALDAV_URL", "https://caldav.example.com")
         monkeypatch.setenv("CALDAV_USERNAME", "user")
         monkeypatch.setenv("CALDAV_PASSWORD", "pass")

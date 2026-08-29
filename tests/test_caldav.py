@@ -41,6 +41,7 @@ class TestCalDAVConfig:
         assert CalDAVConfig.from_env() is None
 
     def test_returns_config_when_url_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
         monkeypatch.setenv("CALDAV_URL", "https://caldav.example.com")
         monkeypatch.setenv("CALDAV_USERNAME", "user")
         monkeypatch.setenv("CALDAV_PASSWORD", "pass")
@@ -56,6 +57,7 @@ class TestCalDAVConfig:
         assert config.readonly_calendars == []
 
     def test_parses_readonly_calendars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
         monkeypatch.setenv("CALDAV_URL", "https://caldav.example.com")
         monkeypatch.setenv("CALDAV_USERNAME", "user")
         monkeypatch.setenv("CALDAV_PASSWORD", "pass")
@@ -241,7 +243,7 @@ class TestCalDAVAuthIntegration:
         self, monkeypatch: pytest.MonkeyPatch,
     ) -> TestClient:
         """A TestClient with MCP_API_KEY set and CalDAV configured."""
-        monkeypatch.setenv("MCP_API_KEY", "secret")
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
         monkeypatch.setenv("CALDAV_URL", "https://caldav.example.com")
         monkeypatch.setenv("CALDAV_USERNAME", "user")
         monkeypatch.setenv("CALDAV_PASSWORD", "pass")
@@ -262,7 +264,7 @@ class TestCalDAVAuthIntegration:
 
     def test_calendars_with_key_works(self, auth_client: TestClient) -> None:
         """With auth and CalDAV configured, /calendars is accessible (may 502 on connection error)."""
-        resp = auth_client.get("/calendars", headers={"X-API-Key": "secret"})
+        resp = auth_client.get("/calendars", headers={"X-API-Key": "test-secret-key"})
         # It won't be 401 — it will try to connect and fail with 502
         assert resp.status_code != 401
 
@@ -435,6 +437,7 @@ class TestCalDAVEndpointsMocked:
     @pytest.fixture
     def mocked_client(self, monkeypatch: pytest.MonkeyPatch) -> TestClient:
         """A TestClient with a mocked CalDAV service."""
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
         monkeypatch.setenv("CALDAV_URL", "https://caldav.example.com")
         monkeypatch.setenv("CALDAV_USERNAME", "user")
         monkeypatch.setenv("CALDAV_PASSWORD", "pass")
@@ -446,7 +449,7 @@ class TestCalDAVEndpointsMocked:
 
         from app.main import create_app
         app = create_app()
-        with TestClient(app) as c:
+        with TestClient(app, headers={"X-API-Key": "test-secret-key"}) as c:
             yield c
 
         _reset_service()
@@ -793,6 +796,7 @@ class TestGetTaskEndpoint:
 
     @pytest.fixture
     def mocked_client(self, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
         monkeypatch.setenv("CALDAV_URL", "https://caldav.example.com")
         monkeypatch.setenv("CALDAV_USERNAME", "user")
         monkeypatch.setenv("CALDAV_PASSWORD", "pass")
@@ -803,7 +807,7 @@ class TestGetTaskEndpoint:
 
         from app.main import create_app
         app = create_app()
-        with TestClient(app) as c:
+        with TestClient(app, headers={"X-API-Key": "test-secret-key"}) as c:
             yield c
 
         _reset_service()
@@ -1393,6 +1397,7 @@ class TestDeleteTaskEndpoint:
 
     @pytest.fixture
     def mocked_client(self, monkeypatch: pytest.MonkeyPatch) -> TestClient:
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
         monkeypatch.setenv("CALDAV_URL", "https://caldav.example.com")
         monkeypatch.setenv("CALDAV_USERNAME", "user")
         monkeypatch.setenv("CALDAV_PASSWORD", "pass")
@@ -1403,7 +1408,7 @@ class TestDeleteTaskEndpoint:
 
         from app.main import create_app
         app = create_app()
-        with TestClient(app) as c:
+        with TestClient(app, headers={"X-API-Key": "test-secret-key"}) as c:
             yield c
 
         _reset_service()

@@ -294,3 +294,133 @@ class TestAuthEdgeCases:
 
         monkeypatch.delenv("MCP_API_KEY", raising=False)
         assert is_auth_enabled() is False
+
+
+# --------------------------------------------------------------------------- #
+# Secrets require auth
+# --------------------------------------------------------------------------- #
+
+class TestDetectConfiguredSecrets:
+    """detect_configured_secrets() finds every secret-carrying env var."""
+
+    def test_no_secrets_detected(self) -> None:
+        from app.auth import detect_configured_secrets
+        assert detect_configured_secrets({}) == []
+
+    def test_whitespace_only_values_ignored(self) -> None:
+        from app.auth import detect_configured_secrets
+        env = {"GITEA_TOKEN": "   ", "CALDAV_PASSWORD": ""}
+        assert detect_configured_secrets(env) == []
+
+    @pytest.mark.parametrize("name", [
+        "NTFY_TOKEN",
+        "NTFY_PASSWORD",
+        "CALDAV_PASSWORD",
+        "ICS_CALENDAR_URL",
+        "GITEA_TOKEN",
+    ])
+    def test_each_secret_var_detected(self, name: str) -> None:
+        from app.auth import detect_configured_secrets
+        assert detect_configured_secrets({name: "value"}) == [name]
+
+    def test_discord_hooks_detected(self) -> None:
+        from app.auth import detect_configured_secrets
+        env = {
+            "DISCORD_INFO_HOOK": "https://discord.com/api/webhooks/1/x",
+            "DISCORD_EMERGENCY_HOOK": "https://discord.com/api/webhooks/1/y",
+        }
+        assert detect_configured_secrets(env) == [
+            "DISCORD_EMERGENCY_HOOK",
+            "DISCORD_INFO_HOOK",
+        ]
+
+    def test_discord_non_hook_vars_ignored(self) -> None:
+        """Non-secret DISCORD_* vars must not trigger the requirement."""
+        from app.auth import detect_configured_secrets
+        env = {
+            "DISCORD_SERVER_NAME": "my-server",
+            "DISCORD_TITLE_SUFFIX": "· test",
+            "MY_DISCORD_INFO_HOOK": "not-an-mcp-var",
+        }
+        assert detect_configured_secrets(env) == []
+
+    def test_multiple_secrets_combined(self) -> None:
+        from app.auth import detect_configured_secrets
+        env = {
+            "NTFY_TOKEN": "tk_x",
+            "GITEA_TOKEN": "tok",
+            "DISCORD_NOTICE_HOOK": "https://discord.com/api/webhooks/1/n",
+        }
+        assert detect_configured_secrets(env) == [
+            "NTFY_TOKEN",
+            "GITEA_TOKEN",
+            "DISCORD_NOTICE_HOOK",
+        ]
+
+
+class TestRequireAuthIfSecrets:
+    """require_auth_if_secrets() fails fast on secrets without MCP_API_KEY."""
+
+    def test_no_secrets_no_key_ok(self) -> None:
+        from app.auth import require_auth_if_secrets
+        require_auth_if_secrets({})  # must not raise
+
+    def test_secret_without_key_raises(self) -> None:
+        from app.auth import require_auth_if_secrets
+        with pytest.raises(RuntimeError, match="GITEA_TOKEN"):
+            require_auth_if_secrets({"GITEA_TOKEN": "tok"})
+
+    def test_error_lists_all_offending_vars(self) -> None:
+        from app.auth import require_auth_if_secrets
+        env = {"CALDAV_PASSWORD": "pw", "DISCORD_INFO_HOOK": "https://x"}
+        with pytest.raises(RuntimeError) as exc_info:
+            require_auth_if_secrets(env)
+        msg = str(exc_info.value)
+        assert "CALDAV_PASSWORD" in msg
+        assert "DISCORD_INFO_HOOK" in msg
+        assert "MCP_API_KEY" in msg
+
+    def test_secret_with_key_ok(self) -> None:
+        from app.auth import require_auth_if_secrets
+        env = {"GITEA_TOKEN": "tok", "MCP_API_KEY": "k3y"}
+        require_auth_if_secrets(env)  # must not raise
+
+    def test_whitespace_key_does_not_satisfy(self) -> None:
+        from app.auth import require_auth_if_secrets
+        env = {"NTFY_TOKEN": "tk", "MCP_API_KEY": "   "}
+        with pytest.raises(RuntimeError, match="MCP_API_KEY"):
+            require_auth_if_secrets(env)
+
+    def test_reads_process_environment_by_default(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """With no argument, the live process environment is inspected."""
+        from app.auth import require_auth_if_secrets
+        monkeypatch.delenv("MCP_API_KEY", raising=False)
+        monkeypatch.setenv("ICS_CALENDAR_URL", "https://example.com/c.ics")
+        with pytest.raises(RuntimeError, match="ICS_CALENDAR_URL"):
+            require_auth_if_secrets()
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
+        require_auth_if_secrets()  # must not raise
+
+
+class TestStartupGuard:
+    """create_app() refuses to start when secrets lack MCP_API_KEY."""
+
+    def test_create_app_raises_with_secret_and_no_key(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.delenv("MCP_API_KEY", raising=False)
+        monkeypatch.setenv("CALDAV_PASSWORD", "pw")
+        from app.main import create_app
+        with pytest.raises(RuntimeError, match="CALDAV_PASSWORD"):
+            create_app()
+
+    def test_create_app_ok_with_both(
+        self, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
+        monkeypatch.setenv("CALDAV_PASSWORD", "pw")
+        from app.main import create_app
+        app = create_app()
+        assert app is not None

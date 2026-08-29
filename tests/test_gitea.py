@@ -939,6 +939,7 @@ class TestGiteaServiceErrors:
 @pytest.fixture
 def gitea_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Set Gitea env vars and reset the service singleton."""
+    monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
     monkeypatch.setenv("GITEA_URL", "https://code.example.com")
     monkeypatch.setenv("GITEA_TOKEN", "test-token")
     monkeypatch.setenv("GITEA_DEFAULT_OWNER", "lyra")
@@ -973,7 +974,7 @@ def gitea_client(gitea_env: None) -> TestClient:
     """A TestClient with Gitea configured (routes mounted)."""
     from app.main import create_app
     app = create_app()
-    with TestClient(app) as c:
+    with TestClient(app, headers={"X-API-Key": "test-secret-key"}) as c:
         yield c
 
 

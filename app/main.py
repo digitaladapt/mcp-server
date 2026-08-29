@@ -45,7 +45,7 @@ from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI, HTTPException
 
 from . import __version__
-from .auth import verify_api_key
+from .auth import require_auth_if_secrets, verify_api_key
 from .caldav_models import CalDAVConfig
 from .ics_models import ICSConfig
 from .jobs import job_scheduler
@@ -200,8 +200,16 @@ def create_app() -> FastAPI:
     that would return 503 — they simply don't exist.
 
     If nothing is configured (no calendar providers, no Gitea, and no
-    registry commands), the server refuses to start.
+    registry commands), the server refuses to start.  Likewise, when
+    integration secrets are configured (Discord webhooks, ntfy token,
+    CalDAV password, ICS feed URL, Gitea token) the server refuses to
+    start without ``MCP_API_KEY`` — never hold secrets while running
+    open.
     """
+    # Fail before doing any other setup: a deployment holding secrets
+    # without auth must never start.
+    require_auth_if_secrets()
+
     # Reset state for clean app creation (important in tests).
     reset_provider_registry()
 
