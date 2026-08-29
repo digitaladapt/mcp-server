@@ -30,3 +30,25 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ vars.DOCKERHUB_TARGET }}:develop
+
+      # for this project, we have a php image variant
+      - name: Build php image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: variants/Dockerfile.php
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ vars.DOCKERHUB_TARGET }}:develop-php
+
+      # for this project, we have a node image variant
+      - name: Build node image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: variants/Dockerfile.node
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ vars.DOCKERHUB_TARGET }}:develop-node

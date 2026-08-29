@@ -35,3 +35,27 @@ jobs:
           tags: |
             ${{ vars.DOCKERHUB_TARGET }}:latest
             ${{ vars.DOCKERHUB_TARGET }}:${{ steps.version.outputs.VERSION }}
+
+      # for this project, we have a php image variant
+      - name: Build php image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: variants/Dockerfile.php
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ vars.DOCKERHUB_TARGET }}:latest-php
+            ${{ vars.DOCKERHUB_TARGET }}:${{ steps.version.outputs.VERSION }}-php
+
+      # for this project, we have a node image variant
+      - name: Build node image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: variants/Dockerfile.node
+          push: true
+          platforms: linux/amd64,linux/arm64
+          tags: |
+            ${{ vars.DOCKERHUB_TARGET }}:latest-node
+            ${{ vars.DOCKERHUB_TARGET }}:${{ steps.version.outputs.VERSION }}-node
