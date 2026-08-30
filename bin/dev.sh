@@ -35,6 +35,11 @@ VENV_DIR=".venv-dev"
 PID_FILE="var/.dev-server.pid"
 LOG_FILE="var/log/dev-server.log"
 
+# Weather data enrichment (Open-Meteo, no API key required).
+# "lat,long" in decimal degrees; must be a valid location on Earth.
+# Defaults to Portland, OR (45.5,-122.6).  Override with WEATHER_LOCATION.
+WEATHER_LOCATION="${WEATHER_LOCATION:-45.5,-122.6}"
+
 # System tools needed
 SYSTEM_TOOLS=(
     curl
@@ -171,6 +176,7 @@ start() {
 
     echo "→ Starting uvicorn dev server…"
     MCP_LOG_FILE="${PROJECT_ROOT}/var/log/mcp.log" \
+    WEATHER_LOCATION="${WEATHER_LOCATION}" \
     nohup "$venv_uvicorn" app.main:app \
         --host "$HOST" \
         --port "$PORT" \
