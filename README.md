@@ -12,7 +12,8 @@ HTTP endpoints.
 
 - **Language-agnostic** – wrap any script, binary, or compiled program.
 - **Self-describing** – each command carries a JSON schema of its args.
-- **Discoverable** – `GET /commands` lists everything; OpenAPI at `/openapi.json`.
+- **Discoverable** – OpenAPI schema at `/openapi.json`; each command is exposed as a typed, native tool.
+- Each registry command gets its own dedicated endpoint (e.g. `POST /log`) — no generic "execute" route.
 - **Secure execution** – arguments are validated against the schema before
   the command is ever run; a 30 s timeout prevents hangs.
 - **Conditional registration** – endpoints only exist when their backing
@@ -40,9 +41,14 @@ require the key to be sent either as an `X-API-Key: <key>` header or as
 `Authorization: Bearer <key>`.  If unset, the server runs
 open (suitable for local development or trusted networks).
 
-> **Startup safety:** if nothing is configured (no calendar providers, no
-> Gitea, no notify providers, no weather, and no registry commands), the
-> server refuses to start.  At least one feature must be enabled.
+> **Startup safety:** the server refuses to start in two situations:
+> 1. **Nothing configured** — no calendar providers, no Gitea, no notify
+>    providers, no weather, and no registry commands.  At least one
+>    feature must be enabled.
+> 2. **Secrets without auth** — if any integration is configured with
+>    secrets (Discord webhooks, ntfy token, CalDAV credentials, ICS feed
+>    URL, Gitea token) and `MCP_API_KEY` is **not** set, the server
+>    refuses to start.  It will not hold secrets while running open.
 
 ## Architecture
 
@@ -618,47 +624,59 @@ Set `MCP_LOG_ENABLED=false` to disable logging entirely — the `log` and
 
 ## Docker
 
-The server ships with a multi-arch Dockerfile ready for `amd64` and
-`arm64`.
+Pre-built images are published to Docker Hub as
+[`digitaladapt/mcp-server`](https://hub.docker.com/r/digitaladapt/mcp-server)
+— multi-arch (`amd64`/`arm64`), tagged on every versioned release
+(`latest`, `vX.Y.Z`, `develop`, plus `-php`/`-node` variant tags).  There is
+no need to build from source for normal use.
 
-### Build
+### Quick start (production)
 
-```bash
-docker build -t digitaladapt/mcp-server:latest .
-```
+1. **Copy the env template** and record your secrets:
+   `cp .env.example .env`
+   The server needs at least one feature configured to start (see
+   [Configuration](#configuration)).  If you configure any integration
+   secrets (Discord webhooks, ntfy token, CalDAV credentials, ICS feed
+   URL, Gitea token), you **must** also set `MCP_API_KEY` — otherwise the
+   server refuses to start rather than run open while holding secrets.
 
-For multi-arch builds (requires `buildx`):
+2. **Use the compose file** in this repo.  The quickest path:
 
-```bash
-docker buildx build --platform linux/amd64,linux/arm64 -t digitaladapt/mcp-server:latest .
-```
+   ```bash
+   docker compose up -d
+   ```
 
-### Run
+   The `docker-compose.yml` mounts `./registry` so you can add or edit
+   command definitions without rebuilding the image.
+
+3. **Verify:**
+
+   ```bash
+   curl http://localhost:8000/api/health
+   # → {"status":"healthy"}
+   ```
+
+### Running with plain `docker run`
+
+If you aren't using compose, the container needs the same bits:
 
 ```bash
 docker run -d --name mcp-server -p 8000:8000 \
   --env-file .env \
-  -e MCP_API_KEY="your-secret-key" \
   -v ./registry:/app/registry \
   digitaladapt/mcp-server:latest
 ```
 
-Or with `docker compose`:
-
-```bash
-docker compose up -d
-```
-
 ### Volumes
 
-| Mount              | Purpose                                                  |
-|--------------------|----------------------------------------------------------|
-| `/app/registry`    | Command definitions — override or extend at runtime.     |
-| `/tmp/mcp`         | Default log file location (or set MCP_LOG_FILE).        |
+| Mount              | Purpose                                               |
+|--------------------|-------------------------------------------------------|
+| `/app/registry`    | Command definitions — override or extend at runtime.  |
+| `/tmp/mcp`         | Default log file location (or set `MCP_LOG_FILE`).   |
 
 The `scripts/` directory (including `log.sh`) is baked into the image.
 Secrets are never baked in — provide them via environment variables
-(`--env-file .env`).
+(`--env-file .env` or `.env` + compose).
 
 ### Image details
 
@@ -667,36 +685,31 @@ Secrets are never baked in — provide them via environment variables
 - **Runs as**: non-root user `mcp` (uid 1000)
 - **Entrypoint**: `tini` (proper PID-1 signal handling)
 
-### Building variants (PHP, Node, etc.)
+### Variant images (PHP, Node.js)
 
-The base `Dockerfile` is designed as a foundation. Variant Dockerfiles live
-in `variants/` and layer additional runtimes on top:
+The base image layers additional runtimes on top for wrapping scripts in
+other languages.  Pre-built variants are published alongside the base
+image:
 
-| Variant | Dockerfile | Runtime | Example commands |
-|---------|------------|---------|------------------|
-| PHP | `variants/Dockerfile.php` | PHP CLI + curl, mbstring, xml | `php_eval` |
-| Node.js | `variants/Dockerfile.node` | Node.js 22 LTS + npm | `node_run` |
-
-**Build a variant** (from repo root):
-
-```bash
-# PHP
-docker build -f variants/Dockerfile.php -t digitaladapt/mcp-server:php .
-
-# Node.js
-docker build -f variants/Dockerfile.node -t digitaladapt/mcp-server:node .
-```
-
-**Run a variant:**
+| Variant | Tag            | Runtime                        |
+|---------|----------------|--------------------------------|
+| Base    | `latest` / `vX.Y.Z`          | Python 3.12 (default) |
+| PHP     | `latest-php` / `vX.Y.Z-php`  | PHP CLI + curl, mbstring, xml |
+| Node.js | `latest-node` / `vX.Y.Z-node`| Node.js 22 LTS + npm            |
 
 ```bash
-docker run -p 8000:8000 \
-  --env-file .env \
-  -v ./registry:/app/registry \
-  digitaladapt/mcp-server:php
+docker pull digitaladapt/mcp-server:latest-php
+# or
+# docker pull digitaladapt/mcp-server:latest-node
 ```
 
-**Creating your own variant:**
+Point the compose file (or `docker run`) at the variant tag and add a
+registry YAML that wraps the new runtime's binary — e.g. for PHP, create
+`registry/php_eval.yaml` with `executable: /usr/bin/php`.
+
+**Building your own variants:** the `variants/` Dockerfiles are meant as
+a foundation if you want a runtime that isn't pre-built.  For example,
+adding Ruby:
 
 ```dockerfile
 # variants/Dockerfile.ruby
