@@ -74,50 +74,99 @@ A lightweight job scheduler (`jobs.py`) runs periodic background tasks
 during the app's lifespan.  Currently used for ICS cache refresh.  Job
 status is visible at `GET /jobs`.
 
-## Roadmap: MCP protocol support (Streamable HTTP)
+## Model Context Protocol (MCP) — Streamable HTTP
 
-> **Status: planned** — this section describes work in progress on the
-> `feat/mcp-streamable-http` branch, captured as a plan before
-> implementation.  It will be replaced by the final usage docs once the
-> feature lands.
+The server speaks the **Model Context Protocol (MCP)** over the
+**Streamable HTTP** transport (the current standard, which superseded
+the legacy HTTP+SSE transport), in addition to its OpenAPI surface.
+The same tool surface is exposed over both transports with **stable,
+identical tool names** (`list_events`, `create_issue`, `log`, …) so a
+model sees one consistent namespace however it connects.
 
-We want the server to speak the **Model Context Protocol (MCP)** over
-HTTP in addition to its existing OpenAPI surface — "MCP streaming via
-http" in the modern sense, i.e. the **Streamable HTTP** transport
-(spec 2025-03-26+, which superseded the legacy HTTP+SSE transport).
+The MCP endpoint is mounted on the existing FastAPI app at:
 
-### Goal
+```
+POST /mcp   – client → server messages (JSON-RPC 2.0)
+GET  /mcp   – server → client stream (SSE)
+DELETE /mcp – end a session
+```
 
-Expose the existing tool surface — registry commands, calendar/CalDAV,
-Gitea, notify, weather — through a standard MCP endpoint so any MCP
-client (the `mcp` CLI, Claude, IDE connectors, etc.) can discover and
-call the same tools currently available via OpenAPI.  OpenAPI support
-stays exactly as it is; MCP is additive.
+It is enabled by default alongside OpenAPI.  Set `MCP_ENABLED=false`
+to disable it.
 
-### Design (planned)
+### Implementation
 
-| Item | Plan |
-|------|------|
-| Endpoint | Single `POST /mcp` for client→server JSON-RPC 2.0 messages; `GET /mcp` for the server→client stream. Plain-JSON responses for short calls; `text/event-stream` (SSE) upgrade for streaming/long-running calls, per the Streamable HTTP spec. No separate process — mounted on the existing FastAPI app. |
-| Tool adapter | New `app/mcp_tools.py` converts registry `CommandSchema` + conditionally-registered integrations into MCP tool definitions (`name`, `description`, `inputSchema`), reusing the existing OpenAPI tool names (`list_events`, `create_issue`, `log`, …) so names stay stable across transports. |
-| Protocol | Implement `initialize` (protocol version negotiation, capabilities), `tools/list`, `tools/call`, plus `notifications/initialized`, `ping`, and graceful handling of unknown methods. |
-| Auth | Reuse the existing `verify_api_key` dependency — MCP clients already send `Authorization: Bearer <key>`, which the auth layer supports today. |
-| Config | Enabled alongside OpenAPI by default; decide during implementation whether an `MCP_ENABLED` opt-out switch is warranted. |
-| Tests | New `tests/test_mcp.py`: initialize handshake, `tools/list` parity with the OpenAPI tool set, `tools/call` happy + error paths, auth enforcement, streaming mode. |
+The MCP layer uses the official `mcp` Python SDK (v2, `MCPServer`)
+rather than a hand-rolled JSON-RPC handler.  Our project is adapted to
+the SDK's idioms (first-class `MCPServer.tool()` registration, service
+layer called via the same code paths the REST routes use) instead of
+wrapping or monkey-patching the SDK.
 
-### Implementation order (planned)
+- `app/mcp_app.py` — builds the `MCPServer`, mounts the SDK's
+  `streamable_http_app()` at `/mcp`, and wires the SDK session manager
+  into the FastAPI lifespan.
+- `app/mcp_tools.py` — sdk-native tool handlers: registry commands
+  (derived from the YAML arg specs) plus calendar/CalDAV, Gitea,
+  notify, and weather, all calling the existing service singletons.
 
-1. `app/mcp_routes.py` skeleton — `/mcp` route + `ping` / `initialize` handshake.
-2. `tools/list` — registry commands + integrations.
-3. `tools/call` — wired to the existing executor and service layer.
-4. Auth + streaming + tests.
-5. Finalize this README section into usage docs.
+### Connecting with the `mcp` CLI
 
-Open design decision: use the official `mcp` Python SDK (FastMCP /
-`StreamableHTTPSession`) vs. a hand-rolled JSON-RPC 2.0 handler on top
-of the pydantic models already in the repo.  Either way the endpoint
-surface is the same; we'll pick based on how cleanly each slots into
-the existing `create_app()` factory pattern.
+The `mcp` CLI (from the SDK) can inspect and call the server:
+
+```bash
+# List tools
+mcp connect http://localhost:8000/mcp
+
+# Interactive session / inspect tools
+mcp connect http://localhost:8000/mcp --transport streamable-http
+```
+
+### Connecting with the Python SDK client
+
+```python
+import asyncio
+from mcp import ClientSession
+from mcp.client.streamable_http import streamable_http_client
+
+async def main():
+    async with streamable_http_client("http://localhost:8000/mcp") as (read, write):
+        async with ClientSession(read, write) as session:
+            await session.initialize()
+            tools = await session.list_tools()
+            print([t.name for t in tools.tools])
+            res = await session.call_tool("log", {"level": "info", "message": "hi from MCP"})
+            print(res.content[0].text)
+
+asyncio.run(main())
+```
+
+### Auth
+
+MCP clients authenticate with the same `MCP_API_KEY` as the REST API,
+sent as a standard Bearer token:
+
+```
+Authorization: Bearer <MCP_API_KEY>
+```
+
+When `MCP_API_KEY` is set, unauthenticated MCP requests are rejected.
+The SDK's built-in Bearer verification is wired to our key check via
+its `token_verifier=` hook.
+
+### Deployment notes
+
+- **Host allow-list:** the SDK arms DNS-rebinding protection for
+  localhost by default, which rejects requests sent to a real hostname
+  with `421 Misdirected Request`.  When deploying behind a hostname,
+  set `MCP_ALLOWED_HOSTS` to a comma-separated list of accepted hosts
+  (e.g. `mcp.example.com,api.example.com`).  Leave it unset for
+  localhost-only.
+- **Public URL:** when auth is enabled, `MCP_PUBLIC_URL` (default
+  `http://localhost`) is used to build the auth metadata URLs.  Set it
+  to the public base URL of the server (e.g. `https://mcp.example.com`)
+  in deployment.
+- **Config flag:** `MCP_ENABLED=false` disables the MCP endpoint while
+  keeping the OpenAPI surface intact.
 
 ## API
 
@@ -544,7 +593,10 @@ startup and conditionally registers endpoints.
 
 | Variable                       | Feature        | Description                                    |
 |--------------------------------|----------------|------------------------------------------------|
-| `MCP_API_KEY`                  | Auth           | API key for endpoints (unset = open access)    |
+| `MCP_API_KEY`                  | Auth           | API key for REST + MCP endpoints (unset = open)| 
+| `MCP_ENABLED`                  | MCP            | Set to `false` to disable the MCP endpoint (default enabled) |
+| `MCP_ALLOWED_HOSTS`            | MCP            | Comma-separated host allow-list for deployed hostnames (unset = localhost only) |
+| `MCP_PUBLIC_URL`               | MCP            | Public base URL used in MCP auth metadata (default http://localhost) |
 | `MCP_REGISTRY_DIR`             | Registry       | Custom registry directory                      |
 | `MCP_LOG_FILE`                 | Logging        | Log file path                                  |
 | `MCP_LOG_DIR`                  | Logging        | Log directory (file is `mcp.log` inside)       |

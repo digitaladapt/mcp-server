@@ -254,7 +254,14 @@ def mount_mcp(app) -> MCPServer:
 
     ``streamable_http_path=\"/\"`` makes the mount prefix (``/mcp``) the
     whole endpoint, matching the standard MCP URL convention.
+
+    Set ``MCP_ENABLED=false`` to skip mounting (the OpenAPI surface stays
+    untouched).
     """
+    if os.environ.get("MCP_ENABLED", "true").strip().lower() in ("false", "0", "no", "off"):
+        logger.info("MCP endpoint disabled via MCP_ENABLED=false")
+        return None
+
     mcp = build_mcp_server()
     security = transport_security()
     kwargs: dict[str, Any] = {"streamable_http_path": "/"}
