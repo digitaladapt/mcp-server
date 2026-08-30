@@ -233,6 +233,31 @@ Exit codes:
 - `1` — one or more files have errors
 - `2` — registry directory does not exist
 
+### Inside Docker
+
+Running the server with `docker compose`?  Your `registry/` directory is
+mounted into the container at `/app/registry`, so validate your YAML the
+same way from the running container:
+
+```bash
+docker compose exec mcp-server python -m app.validate /app/registry
+```
+
+Or with plain `docker run` (adjust the container name if you gave it
+one):
+
+```bash
+docker exec -it mcp-server python -m app.validate
+```
+
+This works for the official `digitaladapt/mcp-server` image too — the
+validator ships inside the image.  Once the report is clean, restart the
+container to pick up your new tool:
+
+```bash
+docker compose restart mcp-server
+```
+
 ### HTTP
 
 ```bash
@@ -244,7 +269,18 @@ detection and executable existence checks.
 
 ## Registering a command
 
-Create a file in `registry/` (e.g. `my_tool.yaml`):
+Add your own command by creating a YAML file in `registry/` — every
+file there becomes a dedicated, typed HTTP endpoint.
+
+Running the server in Docker?  Validate your registry file before
+restarting — no rebuild needed, the validator is already inside the
+image (see [Validating the registry](#validating-the-registry)):
+
+```bash
+docker compose exec mcp-server python -m app.validate /app/registry
+```
+
+Here's an example definition (e.g. `my_tool.yaml`):
 
 ```yaml
 name: my_tool
