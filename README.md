@@ -74,6 +74,51 @@ A lightweight job scheduler (`jobs.py`) runs periodic background tasks
 during the app's lifespan.  Currently used for ICS cache refresh.  Job
 status is visible at `GET /jobs`.
 
+## Roadmap: MCP protocol support (Streamable HTTP)
+
+> **Status: planned** — this section describes work in progress on the
+> `feat/mcp-streamable-http` branch, captured as a plan before
+> implementation.  It will be replaced by the final usage docs once the
+> feature lands.
+
+We want the server to speak the **Model Context Protocol (MCP)** over
+HTTP in addition to its existing OpenAPI surface — "MCP streaming via
+http" in the modern sense, i.e. the **Streamable HTTP** transport
+(spec 2025-03-26+, which superseded the legacy HTTP+SSE transport).
+
+### Goal
+
+Expose the existing tool surface — registry commands, calendar/CalDAV,
+Gitea, notify, weather — through a standard MCP endpoint so any MCP
+client (the `mcp` CLI, Claude, IDE connectors, etc.) can discover and
+call the same tools currently available via OpenAPI.  OpenAPI support
+stays exactly as it is; MCP is additive.
+
+### Design (planned)
+
+| Item | Plan |
+|------|------|
+| Endpoint | Single `POST /mcp` for client→server JSON-RPC 2.0 messages; `GET /mcp` for the server→client stream. Plain-JSON responses for short calls; `text/event-stream` (SSE) upgrade for streaming/long-running calls, per the Streamable HTTP spec. No separate process — mounted on the existing FastAPI app. |
+| Tool adapter | New `app/mcp_tools.py` converts registry `CommandSchema` + conditionally-registered integrations into MCP tool definitions (`name`, `description`, `inputSchema`), reusing the existing OpenAPI tool names (`list_events`, `create_issue`, `log`, …) so names stay stable across transports. |
+| Protocol | Implement `initialize` (protocol version negotiation, capabilities), `tools/list`, `tools/call`, plus `notifications/initialized`, `ping`, and graceful handling of unknown methods. |
+| Auth | Reuse the existing `verify_api_key` dependency — MCP clients already send `Authorization: Bearer <key>`, which the auth layer supports today. |
+| Config | Enabled alongside OpenAPI by default; decide during implementation whether an `MCP_ENABLED` opt-out switch is warranted. |
+| Tests | New `tests/test_mcp.py`: initialize handshake, `tools/list` parity with the OpenAPI tool set, `tools/call` happy + error paths, auth enforcement, streaming mode. |
+
+### Implementation order (planned)
+
+1. `app/mcp_routes.py` skeleton — `/mcp` route + `ping` / `initialize` handshake.
+2. `tools/list` — registry commands + integrations.
+3. `tools/call` — wired to the existing executor and service layer.
+4. Auth + streaming + tests.
+5. Finalize this README section into usage docs.
+
+Open design decision: use the official `mcp` Python SDK (FastMCP /
+`StreamableHTTPSession`) vs. a hand-rolled JSON-RPC 2.0 handler on top
+of the pydantic models already in the repo.  Either way the endpoint
+surface is the same; we'll pick based on how cleanly each slots into
+the existing `create_app()` factory pattern.
+
 ## API
 
 Endpoints are conditionally registered based on configuration.  The
