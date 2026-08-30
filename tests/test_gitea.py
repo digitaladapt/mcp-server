@@ -783,43 +783,6 @@ class TestGiteaServiceRepo:
         repo = svc.get_repo(owner="nope", repo="nope")
         assert repo is None
 
-    def test_list_repos(self) -> None:
-        svc = make_service()
-        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
-        transport.set("GET", "/user/repos", [SAMPLE_REPO])
-        repos, total = svc.list_repos()
-        assert len(repos) == 1
-        assert total == 1
-        assert repos[0].full_name == "lyra/mcp_server"
-
-    def test_list_repos_passes_pagination_params(self) -> None:
-        svc = make_service()
-        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
-        transport.set("GET", "/user/repos", [SAMPLE_REPO])
-        _repos, total = svc.list_repos(page=2, limit=10)
-        assert total == 1
-        method = transport.calls[-1][0]
-        assert method == "GET"
-        assert "page=2" in transport.full_urls[-1] and "limit=10" in transport.full_urls[-1]
-
-    def test_list_repos_filters_by_query(self) -> None:
-        svc = make_service()
-        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
-        other = {**SAMPLE_REPO, "name": "other", "full_name": "lyra/other"}
-        transport.set("GET", "/user/repos", [SAMPLE_REPO, other])
-        repos, total = svc.list_repos(query="mcp")
-        assert total == 1
-        assert repos[0].name == "mcp_server"
-
-    def test_list_repos_filters_by_owner(self) -> None:
-        svc = make_service()
-        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
-        other = {**SAMPLE_REPO, "full_name": "other/mcp_server"}
-        transport.set("GET", "/user/repos", [SAMPLE_REPO, other])
-        repos, total = svc.list_repos(owner="lyra")
-        assert total == 1
-        assert repos[0].full_name == "lyra/mcp_server"
-
     def test_search_repos(self) -> None:
         svc = make_service()
         transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]

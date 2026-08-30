@@ -142,7 +142,6 @@ def _register_conditional_tools(mcp: MCPServer) -> None:
     if has_gitea:
         add(mcp_tools.search_repos, "search_repos", "gitea")
         add(mcp_tools.get_repo, "get_repo", "gitea")
-        add(mcp_tools.list_repos, "list_repos", "gitea")
         add(mcp_tools.list_issues, "list_issues", "gitea")
         add(mcp_tools.get_issue, "get_issue", "gitea")
         add(mcp_tools.create_issue, "create_issue", "gitea:write")

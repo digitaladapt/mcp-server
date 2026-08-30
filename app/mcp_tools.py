@@ -459,27 +459,6 @@ async def get_repo(owner: str | None = None, repo: str | None = None) -> dict[st
     return result.model_dump()
 
 
-async def list_repos(
-    page: int = 1,
-    limit: int = 50,
-    query: str | None = None,
-    owner: str | None = None,
-) -> dict[str, Any]:
-    """List repositories accessible to the token.
-
-    Args:
-        page: Page number.
-        limit: Results per page.
-        query: Optional name/description filter.
-        owner: Optional owner/org filter.
-    """
-    svc = _gitea_service()
-    repos, total = await run_in_threadpool(
-        svc.list_repos, page=page, limit=limit, query=query, owner=owner
-    )
-    return {"repos": [r.model_dump() for r in repos], "total": total}
-
-
 async def list_issues(
     state: str = "open",
     labels: str | None = None,
