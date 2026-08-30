@@ -12,6 +12,8 @@ Verifies:
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 import pytest
 
 from app.tool_names import DuplicateToolNameError, make_operation_id_factory
@@ -142,3 +144,111 @@ class TestDuplicateToolName:
         assert "same_name" in msg
         # The message should name both conflicting routes.
         assert "/a" in msg and "/b" in msg
+
+
+# --------------------------------------------------------------------------- #
+# Gitea tool tags
+# --------------------------------------------------------------------------- #
+
+
+class TestGiteaToolTags:
+    """Every Gitea tool carries a logical ``gitea-*`` group tag.
+
+    Tools surface to MCP clients via the OpenAPI schema, and the router
+    prefixes every Gitea route with the umbrella ``gitea`` tag.  Each
+    route also declares at least one ``gitea-*`` group tag so a client
+    can select the small logical set it needs without pulling in the
+    whole Gitea surface.
+    """
+
+    GITEA_TOOLS: ClassVar[dict[str, list[str]]] = {
+        # (operation id, group tag(s))
+        "search_repos": ["gitea-repos"],
+        "get_repo": ["gitea-repos"],
+        "list_commits": ["gitea-repos"],
+        "compare_refs": ["gitea-repos"],
+        "list_branches": ["gitea-branches"],
+        "create_branch": ["gitea-branches", "gitea-core"],
+        "delete_branch": ["gitea-branches"],
+        "list_issues": ["gitea-issues"],
+        "get_issue_by_index": ["gitea-issues"],
+        "create_issue": ["gitea-issues"],
+        "update_issue": ["gitea-issues"],
+        "list_issue_comments": ["gitea-issues", "gitea-comments"],
+        "create_issue_comment": ["gitea-issues", "gitea-comments"],
+        "list_prs": ["gitea-prs", "gitea-core"],
+        "get_pr_by_index": ["gitea-prs"],
+        "create_pr": ["gitea-prs", "gitea-core"],
+        "update_pr": ["gitea-prs"],
+        "merge_pr": ["gitea-prs"],
+        "create_pr_comment": ["gitea-prs", "gitea-comments"],
+        "list_pr_reviews": ["gitea-prs", "gitea-comments"],
+        "list_actions": ["gitea-ci"],
+        "get_commit_statuses": ["gitea-ci"],
+        "list_releases": ["gitea-releases"],
+        "get_release_by_id": ["gitea-releases"],
+        "create_release": ["gitea-releases"],
+        "update_release": ["gitea-releases"],
+        "delete_release": ["gitea-releases"],
+    }
+
+    @pytest.fixture
+    def app(self, monkeypatch: pytest.MonkeyPatch):
+        monkeypatch.setenv("MCP_API_KEY", "test-secret-key")
+        monkeypatch.setenv("GITEA_URL", "https://code.example.com")
+        monkeypatch.setenv("GITEA_TOKEN", "tok")
+        monkeypatch.setenv("GITEA_DEFAULT_OWNER", "lyra")
+        monkeypatch.setenv("GITEA_DEFAULT_REPO", "repo")
+        monkeypatch.setenv("MCP_GITEA_ISSUES", "1")
+        monkeypatch.setenv("MCP_GITEA_RELEASES", "1")
+        monkeypatch.setenv("MCP_GITEA_EXTRA_TOOLS", "1")
+        import sys
+
+        sys.modules.pop("app.gitea_routes", None)
+
+        from app import gitea_routes
+        gitea_routes._reset_service()
+
+        from app.main import create_app
+        return create_app()
+
+    def _tool_tags(self, app) -> dict[str, list[str]]:
+        """Return {operationId: [tags]} for every documented path operation."""
+        schema = app.openapi()
+        result: dict[str, list[str]] = {}
+        for methods in schema["paths"].values():
+            for op in methods.values():
+                opid = op.get("operationId")
+                if opid:
+                    result[opid] = [t for t in op.get("tags", []) if t != "gitea"]
+        return result
+
+    def test_every_gitea_tool_has_expected_group_tags(self, app):
+        tags = self._tool_tags(app)
+        for tool, group_tags in self.GITEA_TOOLS.items():
+            expected = set(group_tags)
+            actual = set(tags.get(tool, []))
+            assert actual == expected, (
+                f"{tool}: expected tags {sorted(expected)}, got {sorted(actual)}"
+            )
+
+    def test_every_gitea_tool_has_two_or_more_tags(self, app):
+        """Umbrella ``gitea`` plus at least one ``gitea-*`` group tag."""
+        schema = app.openapi()
+        for methods in schema["paths"].values():
+            for op in methods.values():
+                if "gitea" not in op.get("tags", []):
+                    continue
+                assert len(op["tags"]) >= 2, (
+                    f"{op.get('operationId')} has only {op['tags']}; "
+                    "every Gitea tool needs a group tag"
+                )
+
+    def test_core_tools_are_tagged_core(self, app):
+        """The constantly-reached-for tools carry the gitea-core tag."""
+        tags = self._tool_tags(app)
+        for tool in tags:
+            has_core = "gitea-core" in tags[tool]
+            assert has_core == (tool in {"create_branch", "list_prs", "create_pr"}), (
+                f"{tool}: unexpected gitea-core membership (has_core={has_core})"
+            )
