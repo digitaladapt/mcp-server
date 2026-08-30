@@ -40,6 +40,24 @@ Opt-in endpoints (set MCP_GITEA_EXTRA_TOOLS=1 to include in schema):
 
 All endpoints require API key authentication when MCP_API_KEY is set.
 Returns 503 if Gitea is not configured (GITEA_URL unset).
+
+Tool tags
+---------
+Every Gitea tool carries at least two OpenAPI tags (surfaced to MCP
+clients via the schema): the umbrella ``gitea`` tag plus one logical
+``gitea-*`` group tag.  A few tools carry three:
+
+  gitea            – umbrella: every Gitea tool
+  gitea-core       – the tools you reach for constantly (branch + PR flow)
+  gitea-repos      – repo discovery / detail / history
+  gitea-branches   – branch lifecycle
+  gitea-prs        – pull-request lifecycle
+  gitea-issues     – issue lifecycle
+  gitea-releases   – release lifecycle
+  gitea-ci         – Actions / CI status
+  gitea-comments   – commenting across PRs and issues
+
+Tools tagged ``gitea-core``: create_branch, list_prs, create_pr.
 """
 
 from __future__ import annotations
@@ -135,7 +153,7 @@ def _reset_service() -> None:
 # Repository endpoints
 # --------------------------------------------------------------------------- #
 
-@router.get("/repos/search", response_model=RepoListResponse)
+@router.get("/repos/search", response_model=RepoListResponse, tags=["gitea-repos"])
 async def search_repos(
     q: str = Query("", description="Search query (name, description)"),
     owner: str | None = Query(None, description="Filter by owner/org"),
@@ -160,7 +178,7 @@ async def search_repos(
     )
 
 
-@router.get("/repos/{owner}/{repo}", response_model=RepoDetail)
+@router.get("/repos/{owner}/{repo}", response_model=RepoDetail, tags=["gitea-repos"])
 async def get_repo(owner: str, repo: str) -> RepoDetail:
     """Get repo info."""
     svc = _get_service()
@@ -224,7 +242,7 @@ def _suggest_repo(owner: str, repo: str) -> str:
 ###    )
 
 
-@router.get("/repos/{owner}/{repo}/commits", response_model=CommitListResponse)
+@router.get("/repos/{owner}/{repo}/commits", response_model=CommitListResponse, tags=["gitea-repos"])
 async def list_commits(
     owner: str,
     repo: str,
@@ -242,7 +260,7 @@ async def list_commits(
     return CommitListResponse(commits=commits, total=len(commits))
 
 
-@router.get("/repos/{owner}/{repo}/compare", response_model=CompareResult, include_in_schema=_extra_tools)
+@router.get("/repos/{owner}/{repo}/compare", response_model=CompareResult, include_in_schema=_extra_tools, tags=["gitea-repos"])
 async def compare_refs(owner: str, repo: str, base: str, head: str) -> CompareResult:
     """Compare two refs (branches, tags, or SHAs) in a repository."""
     svc = _get_service()
@@ -257,7 +275,7 @@ async def compare_refs(owner: str, repo: str, base: str, head: str) -> CompareRe
 # Issue endpoints (default repo)
 # --------------------------------------------------------------------------- #
 
-@router.get("/issues", response_model=IssueListResponse, include_in_schema=_issues_tools)
+@router.get("/issues", response_model=IssueListResponse, include_in_schema=_issues_tools, tags=["gitea-issues"])
 async def list_issues(
     state: str = Query("open", description="State filter"),
     labels: str | None = Query(None, description="Label names"),
@@ -279,7 +297,7 @@ async def list_issues(
     return IssueListResponse(issues=issues, total=len(issues))
 
 
-@router.get("/issues/{index}", response_model=IssueDetail, include_in_schema=_issues_tools)
+@router.get("/issues/{index}", response_model=IssueDetail, include_in_schema=_issues_tools, tags=["gitea-issues"])
 async def get_issue_by_index(
     index: int,
     owner: str | None = Query(None),
@@ -297,7 +315,7 @@ async def get_issue_by_index(
     return issue
 
 
-@router.post("/issues", response_model=IssueDetail, status_code=201, include_in_schema=_issues_tools)
+@router.post("/issues", response_model=IssueDetail, status_code=201, include_in_schema=_issues_tools, tags=["gitea-issues"])
 async def create_issue(
     req: IssueCreate,
     owner: str | None = Query(None),
@@ -312,7 +330,7 @@ async def create_issue(
         raise HTTPException(status_code=502, detail="Gitea service error")
 
 
-@router.patch("/issues/{index}", response_model=IssueDetail, include_in_schema=_issues_tools)
+@router.patch("/issues/{index}", response_model=IssueDetail, include_in_schema=_issues_tools, tags=["gitea-issues"])
 async def update_issue(
     index: int,
     req: IssueUpdate,
@@ -328,7 +346,7 @@ async def update_issue(
         raise HTTPException(status_code=400, detail="Gitea service error")
 
 
-@router.get("/issues/{index}/comments", response_model=CommentListResponse, include_in_schema=_issues_tools)
+@router.get("/issues/{index}/comments", response_model=CommentListResponse, include_in_schema=_issues_tools, tags=["gitea-issues", "gitea-comments"])
 async def list_issue_comments(
     index: int,
     owner: str | None = Query(None),
@@ -344,7 +362,7 @@ async def list_issue_comments(
     return CommentListResponse(comments=comments, total=len(comments))
 
 
-@router.post("/issues/{index}/comments", response_model=CommentDetail, status_code=201, include_in_schema=_issues_tools)
+@router.post("/issues/{index}/comments", response_model=CommentDetail, status_code=201, include_in_schema=_issues_tools, tags=["gitea-issues", "gitea-comments"])
 async def create_issue_comment(
     index: int,
     req: CommentCreate,
@@ -364,7 +382,7 @@ async def create_issue_comment(
 # Branch endpoints
 # --------------------------------------------------------------------------- #
 
-@router.get("/branches", response_model=BranchListResponse)
+@router.get("/branches", response_model=BranchListResponse, tags=["gitea-branches"])
 async def list_branches(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
@@ -381,7 +399,7 @@ async def list_branches(
     return BranchListResponse(branches=branches, total=len(branches))
 
 
-@router.post("/branches", response_model=BranchInfo, status_code=201)
+@router.post("/branches", response_model=BranchInfo, status_code=201, tags=["gitea-branches", "gitea-core"])
 async def create_branch(
     req: BranchCreate,
     owner: str | None = Query(None),
@@ -396,7 +414,7 @@ async def create_branch(
         raise HTTPException(status_code=502, detail="Gitea service error")
 
 
-@router.delete("/branches/{name:path}", response_model=DeleteResponse)
+@router.delete("/branches/{name:path}", response_model=DeleteResponse, tags=["gitea-branches"])
 async def delete_branch(
     name: str,
     owner: str | None = Query(None),
@@ -418,7 +436,7 @@ async def delete_branch(
 # Pull Request endpoints
 # --------------------------------------------------------------------------- #
 
-@router.get("/prs", response_model=PRListResponse)
+@router.get("/prs", response_model=PRListResponse, tags=["gitea-prs", "gitea-core"])
 async def list_prs(
     state: str = Query("open", description="State filter"),
     owner: str | None = Query(None),
@@ -436,7 +454,7 @@ async def list_prs(
     return PRListResponse(pulls=prs, total=len(prs))
 
 
-@router.get("/prs/{index}", response_model=PRDetail)
+@router.get("/prs/{index}", response_model=PRDetail, tags=["gitea-prs"])
 async def get_pr_by_index(
     index: int,
     owner: str | None = Query(None),
@@ -454,7 +472,7 @@ async def get_pr_by_index(
     return pr
 
 
-@router.post("/prs", response_model=PRDetail, status_code=201)
+@router.post("/prs", response_model=PRDetail, status_code=201, tags=["gitea-prs", "gitea-core"])
 async def create_pr(
     req: PRCreate,
     owner: str | None = Query(None),
@@ -469,7 +487,7 @@ async def create_pr(
         raise HTTPException(status_code=502, detail="Gitea service error")
 
 
-@router.patch("/prs/{index}", response_model=PRDetail)
+@router.patch("/prs/{index}", response_model=PRDetail, tags=["gitea-prs"])
 async def update_pr(
     index: int,
     req: PRUpdate,
@@ -485,7 +503,7 @@ async def update_pr(
         raise HTTPException(status_code=400, detail="Gitea service error")
 
 
-@router.post("/prs/{index}/merge", response_model=MergeResponse)
+@router.post("/prs/{index}/merge", response_model=MergeResponse, tags=["gitea-prs"])
 async def merge_pr(
     index: int,
     req: PRMerge,
@@ -508,7 +526,7 @@ async def merge_pr(
     )
 
 
-@router.get("/prs/{index}/reviews", response_model=ReviewListResponse, include_in_schema=_extra_tools)
+@router.get("/prs/{index}/reviews", response_model=ReviewListResponse, include_in_schema=_extra_tools, tags=["gitea-prs", "gitea-comments"])
 async def list_pr_reviews(
     index: int,
     owner: str | None = Query(None),
@@ -524,7 +542,7 @@ async def list_pr_reviews(
     return ReviewListResponse(reviews=reviews, total=len(reviews))
 
 
-@router.post("/prs/{index}/comments", response_model=CommentDetail, status_code=201)
+@router.post("/prs/{index}/comments", response_model=CommentDetail, status_code=201, tags=["gitea-prs", "gitea-comments"])
 async def create_pr_comment(
     index: int,
     req: CommentCreate,
@@ -544,7 +562,7 @@ async def create_pr_comment(
 # Actions / CI endpoints
 # --------------------------------------------------------------------------- #
 
-@router.get("/actions", response_model=ActionRunListResponse)
+@router.get("/actions", response_model=ActionRunListResponse, tags=["gitea-ci"])
 async def list_actions(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
@@ -561,7 +579,7 @@ async def list_actions(
     return ActionRunListResponse(runs=runs, total=len(runs))
 
 
-@router.get("/commits/{sha}/statuses", response_model=CommitStatusListResponse, include_in_schema=_extra_tools)
+@router.get("/commits/{sha}/statuses", response_model=CommitStatusListResponse, include_in_schema=_extra_tools, tags=["gitea-ci"])
 async def get_commit_statuses(
     sha: str,
     owner: str | None = Query(None),
@@ -581,7 +599,7 @@ async def get_commit_statuses(
 # Release endpoints
 # --------------------------------------------------------------------------- #
 
-@router.get("/releases", response_model=ReleaseListResponse, include_in_schema=_releases_tools)
+@router.get("/releases", response_model=ReleaseListResponse, include_in_schema=_releases_tools, tags=["gitea-releases"])
 async def list_releases(
     owner: str | None = Query(None),
     repo: str | None = Query(None),
@@ -598,7 +616,7 @@ async def list_releases(
     return ReleaseListResponse(releases=releases, total=len(releases))
 
 
-@router.get("/releases/{release_id}", response_model=ReleaseDetail, include_in_schema=_releases_tools)
+@router.get("/releases/{release_id}", response_model=ReleaseDetail, include_in_schema=_releases_tools, tags=["gitea-releases"])
 async def get_release_by_id(
     release_id: int,
     owner: str | None = Query(None),
@@ -616,7 +634,7 @@ async def get_release_by_id(
     return release
 
 
-@router.post("/releases", response_model=ReleaseDetail, status_code=201, include_in_schema=_releases_tools)
+@router.post("/releases", response_model=ReleaseDetail, status_code=201, include_in_schema=_releases_tools, tags=["gitea-releases"])
 async def create_release(
     req: ReleaseCreate,
     owner: str | None = Query(None),
@@ -631,7 +649,7 @@ async def create_release(
         raise HTTPException(status_code=502, detail="Gitea service error")
 
 
-@router.patch("/releases/{release_id}", response_model=ReleaseDetail, include_in_schema=_releases_tools)
+@router.patch("/releases/{release_id}", response_model=ReleaseDetail, include_in_schema=_releases_tools, tags=["gitea-releases"])
 async def update_release(
     release_id: int,
     req: ReleaseUpdate,
@@ -647,7 +665,7 @@ async def update_release(
         raise HTTPException(status_code=400, detail="Gitea service error")
 
 
-@router.delete("/releases/{release_id}", response_model=DeleteResponse, include_in_schema=_releases_tools)
+@router.delete("/releases/{release_id}", response_model=DeleteResponse, include_in_schema=_releases_tools, tags=["gitea-releases"])
 async def delete_release(
     release_id: int,
     owner: str | None = Query(None),
