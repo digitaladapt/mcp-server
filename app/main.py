@@ -181,7 +181,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await job_scheduler.start_all()
     logger.info("Background jobs started: %s", job_scheduler.job_names)
 
-    yield
+    # The MCP SDK's session manager is entered from the host app's lifespan
+    # because a mounted sub-application's lifespan never runs.  Without this,
+    # the first request to /mcp fails with
+    # ``RuntimeError: Task group is not initialized``.
+    from .mcp_app import get_mounted_server
+    mcp = get_mounted_server(app)
+    if mcp is not None:
+        async with mcp.session_manager.run():
+            yield
+    else:
+        yield
 
     await job_scheduler.stop_all()
     logger.info("Background jobs stopped")
@@ -305,6 +315,14 @@ def create_app() -> FastAPI:
     # ------------------------------------------------------------------ #
     if registry_commands:
         app.include_router(create_registry_router())
+
+    # ------------------------------------------------------------------ #
+    # MCP (Model Context Protocol) Streamable HTTP endpoint
+    # ------------------------------------------------------------------ #
+    # Mounts the official MCP SDK's Streamable HTTP app at /mcp. The tool
+    # surface mirrors the OpenAPI surface (same tool names, same services).
+    from .mcp_app import mount_mcp
+    mount_mcp(app)
 
     # ------------------------------------------------------------------ #
     # Core endpoints (always present)
