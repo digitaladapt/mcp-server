@@ -215,7 +215,7 @@ features will be present.
 | GET    | `/repos/search`      | Search repos across the instance             |
 | GET    | `/repos/{owner}/{repo}` | Get repository info                       |
 | GET    | `/repos/{owner}/{repo}/commits` | List recent commits               |
-| GET    | `/repos/{owner}/{repo}/compare` | Compare two refs (extra tools)    |
+| GET    | `/repos/{owner}/{repo}/compare` | Compare two refs    |
 | GET    | `/branches`          | List branches (default repo or owner/repo)   |
 | POST   | `/branches`          | Create a new branch                          |
 | DELETE | `/branches/{name}`   | Delete a branch                              |
@@ -224,13 +224,10 @@ features will be present.
 | GET    | `/prs/{index}`       | Get a single PR                              |
 | PATCH  | `/prs/{index}`       | Update a PR (e.g. close it)                  |
 | POST   | `/prs/{index}/merge` | Merge a pull request                         |
-| GET    | `/prs/{index}/reviews` | List reviews on a PR (extra tools)         |
+| GET    | `/prs/{index}/reviews` | List reviews on a PR         |
 | POST   | `/prs/{index}/comments` | Comment on a PR                           |
 | GET    | `/actions`           | List CI workflow runs                        |
-| GET    | `/commits/{sha}/statuses` | Get CI status checks (extra tools)      |
-
-> **Issues:** `/issues`, `/issues/...`, and `/issues/.../comments`.
-> Set `MCP_GITEA_ISSUES=1` to expose them.
+| GET    | `/commits/{sha}/statuses` | Get CI status checks      |
 
 | Method | Path                 | Description                                  |
 |--------|----------------------|----------------------------------------------|
@@ -241,9 +238,6 @@ features will be present.
 | GET    | `/issues/{index}/comments` | List comments on an issue              |
 | POST   | `/issues/{index}/comments` | Comment on an issue                    |
 
-> **Releases:** `/releases` and `/releases/...`.
-> Set `MCP_GITEA_RELEASES=1` to expose them.
-
 | Method | Path                 | Description                                  |
 |--------|----------------------|----------------------------------------------|
 | GET    | `/releases`          | List releases                                |
@@ -251,10 +245,6 @@ features will be present.
 | GET    | `/releases/{release_id}` | Get a single release                     |
 | PATCH  | `/releases/{release_id}` | Update a release                         |
 | DELETE | `/releases/{release_id}` | Delete a release                         |
-
-> **Extra tools:** `/repos/.../compare`, `/prs/{index}/reviews`, and
-> `/commits/{sha}/statuses` are hidden from the OpenAPI schema by default
-> to reduce token count.  Set `MCP_GITEA_EXTRA_TOOLS=1` to expose them.
 
 ### Notify (when Discord or Ntfy is configured)
 
@@ -614,9 +604,6 @@ startup and conditionally registers endpoints.
 | `GITEA_TOKEN`                  | Gitea          | API token                                      |
 | `GITEA_DEFAULT_OWNER`          | Gitea          | Default repo owner                             |
 | `GITEA_DEFAULT_REPO`           | Gitea          | Default repo name                              |
-| `MCP_GITEA_ISSUES`             | Gitea          | Set to `1` to expose issue endpoints           |
-| `MCP_GITEA_RELEASES`           | Gitea          | Set to `1` to expose release endpoints         |
-| `MCP_GITEA_EXTRA_TOOLS`        | Gitea          | Expose niche endpoints in OpenAPI schema       |
 | `DISCORD_*_HOOK`               | Notify         | Discord webhook URLs (per severity level)      |
 | `DISCORD_SERVER_NAME`          | Notify         | Bot display name override                      |
 | `DISCORD_TITLE_SUFFIX`         | Notify         | Title suffix for Discord messages              |
