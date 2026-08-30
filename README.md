@@ -118,8 +118,8 @@ features will be present.
 
 | Method | Path                 | Description                                  |
 |--------|----------------------|----------------------------------------------|
+| GET    | `/repos/search`      | Search repos across the instance             |
 | GET    | `/repos/{owner}/{repo}` | Get repository info                       |
-| GET    | `/user/repos`        | List accessible repositories                 |
 | GET    | `/repos/{owner}/{repo}/commits` | List recent commits               |
 | GET    | `/repos/{owner}/{repo}/compare` | Compare two refs (extra tools)    |
 | GET    | `/branches`          | List branches (default repo or owner/repo)   |
@@ -481,6 +481,8 @@ startup and conditionally registers endpoints.
 | `GITEA_TOKEN`                  | Gitea          | API token                                      |
 | `GITEA_DEFAULT_OWNER`          | Gitea          | Default repo owner                             |
 | `GITEA_DEFAULT_REPO`           | Gitea          | Default repo name                              |
+| `MCP_GITEA_ISSUES`             | Gitea          | Set to `1` to expose issue endpoints           |
+| `MCP_GITEA_RELEASES`           | Gitea          | Set to `1` to expose release endpoints         |
 | `MCP_GITEA_EXTRA_TOOLS`        | Gitea          | Expose niche endpoints in OpenAPI schema       |
 | `DISCORD_*_HOOK`               | Notify         | Discord webhook URLs (per severity level)      |
 | `DISCORD_SERVER_NAME`          | Notify         | Bot display name override                      |
