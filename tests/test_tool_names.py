@@ -71,8 +71,6 @@ class TestCleanOperationIDs:
         assert ids["list_issues"] == "/issues"
         assert ids["list_prs"] == "/prs"
         assert ids["list_releases"] == "/releases"
-        # list-repos (/user/repos) was removed; use search-repos instead.
-        assert "list_repos" not in ids
         assert ids["search_repos"] == "/repos/search"
         assert ids["list_calendars"] == "/calendars"
 

@@ -827,33 +827,6 @@ class GiteaService:
             raise
         return _parse_repo(data)
 
-    def list_repos(
-        self,
-        *,
-        page: int = 1,
-        limit: int = 50,
-        query: str | None = None,
-        owner: str | None = None,
-    ) -> tuple[list[RepoDetail], int]:
-        """List repositories accessible to the token.
-
-        Returns ``(repos, total)``.  ``query`` narrows by name/description and
-        ``owner`` filters to a specific owner/org.  Both are applied client-side
-        to the token's /user/repos listing (Gitea's /repos/search is available
-        separately via :meth:`search_repos` for cross-owner discovery).
-        """
-        params: dict[str, Any] = {"page": page, "limit": limit}
-        data = self._request("GET", "/user/repos", params=params)
-        raw = data if isinstance(data, list) else []
-        repos = [_parse_repo(d) for d in raw]
-        if query:
-            q = query.lower()
-            repos = [r for r in repos if q in r.name.lower() or (r.description or "").lower().find(q) >= 0]
-        if owner:
-            o = owner.lower()
-            repos = [r for r in repos if r.full_name.lower().startswith(o + "/")]
-        return repos, len(repos)
-
     def search_repos(
         self,
         query: str = "",
