@@ -47,10 +47,6 @@ class TestCleanOperationIDs:
         monkeypatch.setenv("GITEA_TOKEN", "tok")
         monkeypatch.setenv("GITEA_DEFAULT_OWNER", "lyra")
         monkeypatch.setenv("GITEA_DEFAULT_REPO", "repo")
-        # Issues/releases routes are opt-in; enable before module import so
-        # their include_in_schema flags are set.
-        monkeypatch.setenv("MCP_GITEA_ISSUES", "1")
-        monkeypatch.setenv("MCP_GITEA_RELEASES", "1")
         import sys
 
         sys.modules.pop("app.gitea_routes", None)
@@ -199,9 +195,6 @@ class TestGiteaToolTags:
         monkeypatch.setenv("GITEA_TOKEN", "tok")
         monkeypatch.setenv("GITEA_DEFAULT_OWNER", "lyra")
         monkeypatch.setenv("GITEA_DEFAULT_REPO", "repo")
-        monkeypatch.setenv("MCP_GITEA_ISSUES", "1")
-        monkeypatch.setenv("MCP_GITEA_RELEASES", "1")
-        monkeypatch.setenv("MCP_GITEA_EXTRA_TOOLS", "1")
         import sys
 
         sys.modules.pop("app.gitea_routes", None)

@@ -408,7 +408,6 @@ class TestGiteaServiceIssues:
     """Tests for GiteaService issue operations."""
 
     def test_list_issues(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("MCP_GITEA_ISSUES", "1")
         svc = make_service()
         transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/issues", [SAMPLE_ISSUE])
