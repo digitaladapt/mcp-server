@@ -60,13 +60,19 @@ def live_server_with_key(monkeypatch: pytest.MonkeyPatch) -> Generator[str, None
 
 def _start_live_server() -> Generator[str, None, None]:
     """Spawn uvicorn with the current environment and yield the base URL."""
+    import sys
     from pathlib import Path
     project_root = Path(__file__).resolve().parent.parent
-    uvicorn = project_root / ".venv-dev" / "bin" / "uvicorn"
+    # Run uvicorn from the interpreter running the tests so the subprocess uses
+    # the same environment with uvicorn installed (a runtime dependency). This
+    # works on CI and in the local dev environment without a .venv-dev path.
+    python = sys.executable
     port = _free_port()
     proc = subprocess.Popen(
         [
-            str(uvicorn),
+            python,
+            "-m",
+            "uvicorn",
             "app.main:app",
             "--host", "127.0.0.1",
             "--port", str(port),
