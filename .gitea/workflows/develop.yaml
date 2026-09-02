@@ -44,6 +44,8 @@ jobs:
 
       # for this project, we have a node image variant
       - name: Build node image
+        env:
+          TERM: xterm
         uses: docker/build-push-action@v5
         with:
           context: .
