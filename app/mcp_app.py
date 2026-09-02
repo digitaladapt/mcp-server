@@ -175,7 +175,7 @@ def _register_conditional_tools(mcp: MCPServer) -> None:
 
     # Weather
     if has_weather:
-        add(mcp_tools.get_weather, "get_weather", "weather")
+        add(mcp_tools.weather, "weather", "weather")
 
     # Registry commands (always registered when files exist)
     from .registry import list_commands
