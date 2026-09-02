@@ -1099,7 +1099,7 @@ async def notify(
 # Weather tools
 # --------------------------------------------------------------------------- #
 
-async def get_weather(days: int = 1) -> dict[str, Any]:
+async def weather(days: int = 1) -> dict[str, Any]:
     """Get current weather and multi-day forecast.
 
     Args:

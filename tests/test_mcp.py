@@ -151,7 +151,7 @@ def test_mcp_tool_surface_matches_registry(monkeypatch, _real_registry):
     names, tools = asyncio.run(run())
     assert "log" in names
     assert "log_read" in names
-    assert "get_weather" in names
+    assert "weather" in names
 
     log_tool = next(t for t in tools.tools if t.name == "log")
     props = log_tool.input_schema.get("properties", {})
