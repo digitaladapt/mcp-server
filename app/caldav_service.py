@@ -775,7 +775,12 @@ class CalDAVService:
         if req.description is not None:
             todo_component.pop("description", None)
             todo_component.add("description", req.description)
-        if req.due is not None:
+        if req.clear_due or req.due == "":
+            # Explicit clear: remove the DUE property entirely.
+            # (``due: null`` means "unchanged"; ``due: ""`` and
+            # ``clear_due`` both mean "remove".)
+            todo_component.pop("due", None)
+        elif req.due is not None:
             todo_component.pop("due", None)
             todo_component.add("due", self._parse_dt(req.due))
         if req.priority is not None:
