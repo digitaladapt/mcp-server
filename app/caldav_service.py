@@ -271,7 +271,14 @@ class CalDAVService:
         calendar_name: str,
         editable: bool,
     ) -> CalendarEvent | None:
-        """Parse a CalDAV object into a CalendarEvent."""
+        """Parse a CalDAV object into a CalendarEvent.
+
+        When the object is an occurrence produced by recurrence
+        expansion (it carries a ``RECURRENCE-ID``), the UID is suffixed
+        with ``__{start_iso}`` to make each occurrence uniquely
+        addressable — mirroring :meth:`ICSService._parse_event`.  Plain
+        (master / non-recurring) events keep their raw UID.
+        """
         ev = self._extract_component(caldav_obj, "VEVENT")
         if ev is None:
             return None
@@ -279,8 +286,18 @@ class CalDAVService:
         dtstart = ev.get("dtstart")
         dtend = ev.get("dtend")
 
+        raw_uid = str(ev.get("uid", ""))
+        recurrence_id = (
+            self._format_dt(ev.get("recurrence-id"))
+            if ev.get("recurrence-id") is not None
+            else None
+        )
+        uid = raw_uid
+        if recurrence_id is not None:
+            uid = f"{raw_uid}__{self._format_dt(dtstart)}"
+
         return CalendarEvent(
-            uid=str(ev.get("uid", "")),
+            uid=uid,
             summary=str(ev.get("summary", "")),
             description=str(ev.get("description")) if ev.get("description") else None,
             start=self._format_dt(dtstart),
@@ -290,24 +307,60 @@ class CalDAVService:
             categories=self._parse_categories(ev),
             status=str(ev.get("status")) if ev.get("status") else None,
             priority=int(ev.get("priority")) if ev.get("priority") else None,
+            recurrence_id=recurrence_id,
             calendar_name=calendar_name,
             editable=editable,
             alarms=self._parse_alarms(ev),
         )
 
+    @staticmethod
+    def _split_composite_uid(uid: str) -> tuple[str, datetime | None]:
+        """Split a composite recurrence UID into (base_uid, occurrence_start).
+
+        Composite UIDs have the form ``{original_uid}__{start_iso}`` (see
+        :meth:`_parse_event`).  For non-composite UIDs the original is
+        returned unchanged with ``None`` as the occurrence start.
+        """
+        if "__" not in uid:
+            return uid, None
+        base_uid, _, start_iso = uid.rpartition("__")
+        if not base_uid or not start_iso:
+            return uid, None
+        try:
+            occurrence_start = datetime.fromisoformat(start_iso)
+        except ValueError:
+            return uid, None
+        return base_uid, occurrence_start
+
     @_with_connection_recovery
     def get_event(self, uid: str) -> CalendarEvent | None:
-        """Find a single event by UID across all calendars."""
+        """Find a single event by UID across all calendars.
+
+        Supports both plain UIDs (master events) and composite UIDs of
+        the form ``{uid}__{start_iso}`` produced by recurrence expansion
+        in :meth:`list_events`.
+        """
+        base_uid, occurrence_start = self._split_composite_uid(uid)
         for cal in self._get_target_calendars():
             name = self._get_cal_name(cal)
             if not name:
                 continue
             editable = self._is_editable(name)
             try:
-                found = cal.search(
-                    comp_class=caldav.Event,
-                    uid=uid,
-                )
+                if occurrence_start is not None:
+                    # Composite UID: expand a narrow window around the
+                    # occurrence so the matching instance is returned.
+                    found = cal.search(
+                        start=occurrence_start - timedelta(minutes=1),
+                        end=occurrence_start + timedelta(minutes=1),
+                        event=True,
+                        expand=True,
+                    )
+                else:
+                    found = cal.search(
+                        comp_class=caldav.Event,
+                        uid=base_uid,
+                    )
             except (caldav.lib.error.DAVError, ConnectionError, TimeoutError, OSError, ValueError):
                 # Fallback: search all events and filter by UID
                 try:

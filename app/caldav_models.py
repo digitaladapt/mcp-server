@@ -95,6 +95,7 @@ class CalendarEvent(BaseModel):
     categories: list[str] = []
     status: str | None = None  # TENTATIVE, CONFIRMED, CANCELLED
     priority: int | None = None  # 1 (highest) – 9 (lowest)
+    recurrence_id: str | None = None  # RECURRENCE-ID for an occurrence of a recurring series
     calendar_name: str
     editable: bool
     alarms: list[AlarmSpec] = []
