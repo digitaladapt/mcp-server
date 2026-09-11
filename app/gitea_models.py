@@ -355,12 +355,36 @@ class CommitInfo(BaseModel):
     date: str | None = None
 
 
+class CompareCommit(BaseModel):
+    """A commit in a branch comparison.
+
+    Fields mirror what Gitea's ``/compare`` endpoint returns per commit
+    (``sha``, ``commit.message``, ``commit.author``, ``stats``, ``files``),
+    normalised so consumers don't have to know the raw Gitea shape.
+    """
+    sha: str
+    message: str
+    author: str | None = None
+    author_email: str | None = None
+    date: str | None = None
+    additions: int = 0
+    deletions: int = 0
+    files_changed: list[FileChange] = []
+
+
 class CompareResult(BaseModel):
-    """Result of comparing two refs."""
+    """Result of comparing two refs.
+
+    ``commits_behind`` is best-effort: Gitea's compare response does not
+    include behind-count, so it is derived from a follow-up reversed
+    compare when possible and ``None`` when it could not be determined
+    (rather than silently reporting a wrong ``0``).
+    """
     base: str
     head: str
     commits_ahead: int
-    commits_behind: int
+    commits_behind: int | None = None
+    commits: list[CompareCommit] = []
     files_changed: list[FileChange] = []
     total_additions: int = 0
     total_deletions: int = 0

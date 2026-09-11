@@ -157,14 +157,38 @@ SAMPLE_COMMIT = {
     },
 }
 
+# The shape Gitea 1.19+ actually returns: per-commit `stats` + `files`,
+# NO top-level `files`/`behind_by`/`total_additions` (those are GitHub-style).
 SAMPLE_COMPARE = {
     "total_commits": 3,
-    "behind_by": 0,
-    "total_additions": 50,
-    "total_deletions": 5,
-    "files": [
-        {"filename": "app/main.py", "status": "modified", "additions": 10, "deletions": 2},
-        {"filename": "app/new.py", "status": "added", "additions": 40, "deletions": 0},
+    "commits": [
+        {
+            "sha": "aaaa1111",
+            "commit": {"message": "feat: add main", "author": {"name": "Andrew", "email": "andrew@example.com", "date": "2026-01-01T00:00:00Z"}},
+            "stats": {"total": 12, "additions": 10, "deletions": 2},
+            "files": [{"filename": "app/main.py", "status": "modified"}],
+        },
+        {
+            "sha": "bbbb2222",
+            "commit": {"message": "feat: add new", "author": {"name": "Andrew", "email": "andrew@example.com", "date": "2026-01-02T00:00:00Z"}},
+            "stats": {"total": 40, "additions": 40, "deletions": 0},
+            "files": [{"filename": "app/new.py", "status": "added"}],
+        },
+        {
+            "sha": "cccc3333",
+            "commit": {"message": "fix: touch main again", "author": {"name": "Andrew", "email": "andrew@example.com", "date": "2026-01-03T00:00:00Z"}},
+            "stats": {"total": 3, "additions": 0, "deletions": 3},
+            "files": [{"filename": "app/main.py", "status": "modified"}],
+        },
+    ],
+}
+
+# Reversed compare response used to derive commits_behind (head...base).
+SAMPLE_COMPARE_REVERSED = {
+    "total_commits": 2,
+    "commits": [
+        {"sha": "dddd4444", "commit": {"message": "base work", "author": {"name": "Andrew", "email": "a@b.c", "date": "2026-01-01T00:00:00Z"}}, "stats": {"total": 1, "additions": 1, "deletions": 0}, "files": []},
+        {"sha": "eeee5555", "commit": {"message": "more base work", "author": {"name": "Andrew", "email": "a@b.c", "date": "2026-01-01T00:00:00Z"}}, "stats": {"total": 1, "additions": 1, "deletions": 0}, "files": []},
     ],
 }
 
@@ -828,12 +852,53 @@ class TestGiteaServiceRepo:
         svc = make_service()
         transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/compare/main...feature/x", SAMPLE_COMPARE)
+        # Reversed compare response is used to derive commits_behind.
+        transport.set("GET", "/repos/lyra/mcp_server/compare/feature/x...main", SAMPLE_COMPARE_REVERSED)
         result = svc.compare("main", "feature/x")
         assert result.commits_ahead == 3
+        assert result.commits_behind == 2
+        # Totals come from per-commit stats, not GitHub-style top-level fields.
         assert result.total_additions == 50
+        assert result.total_deletions == 5
+        assert len(result.commits) == 3
+        # `app/main.py` touched by two commits but deduplicated to one entry.
         assert len(result.files_changed) == 2
         assert result.files_changed[0].filename == "app/main.py"
         assert result.files_changed[1].status == "added"
+        assert result.commits[0].sha == "aaaa1111"
+        assert result.commits[2].additions == 0
+        assert result.commits[2].deletions == 3
+
+    def test_compare_behind_unknown_when_reversed_missing(self) -> None:
+        """When the reversed compare 404s, behind must be None, not 0."""
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        transport.set("GET", "/repos/lyra/mcp_server/compare/main...feature/x", SAMPLE_COMPARE)
+        # No reversed response -> transport returns 404 -> _compare_behind returns None.
+        result = svc.compare("main", "feature/x")
+        assert result.commits_behind is None
+
+    def test_compare_tolerates_missing_stats_and_files(self) -> None:
+        """A Gitea upgrade that stops returning per-commit stats/files must not raise."""
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        transport.set(
+            "GET", "/repos/lyra/mcp_server/compare/main...feature/x",
+            {"total_commits": 1, "commits": [{"sha": "aa", "commit": {"message": "m"}}]},
+        )
+        result = svc.compare("main", "feature/x")
+        assert result.commits_ahead == 1
+        assert result.total_additions == 0
+        assert result.files_changed == []
+        assert len(result.commits) == 1
+
+    def test_compare_derives_ahead_from_commit_count_when_total_missing(self) -> None:
+        """Fall back to len(commits) if total_commits is missing."""
+        svc = make_service()
+        transport: MockTransport = svc._client._mock_transport  # type: ignore[attr-defined]
+        transport.set("GET", "/repos/lyra/mcp_server/compare/main...feature/x", {"commits": [{"sha": "aa", "commit": {"message": "m"}}]})
+        result = svc.compare("main", "feature/x")
+        assert result.commits_ahead == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -1238,9 +1303,15 @@ class TestGiteaRoutesRepo:
     def test_compare(self, mock_gitea_service: Any, gitea_client: TestClient) -> None:
         transport: MockTransport = mock_gitea_service._client._mock_transport  # type: ignore[attr-defined]
         transport.set("GET", "/repos/lyra/mcp_server/compare/main...feature/x", SAMPLE_COMPARE)
+        transport.set("GET", "/repos/lyra/mcp_server/compare/feature/x...main", SAMPLE_COMPARE_REVERSED)
         resp = gitea_client.get("/repos/lyra/mcp_server/compare", params={"base": "main", "head": "feature/x"})
         assert resp.status_code == 200
-        assert resp.json()["commits_ahead"] == 3
+        body = resp.json()
+        assert body["commits_ahead"] == 3
+        assert body["commits_behind"] == 2
+        assert body["total_additions"] == 50
+        assert len(body["commits"]) == 3
+        assert len(body["files_changed"]) == 2
 
 
 # --------------------------------------------------------------------------- #
