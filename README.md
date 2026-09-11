@@ -47,8 +47,9 @@ open (suitable for local development or trusted networks).
 >    feature must be enabled.
 > 2. **Secrets without auth** — if any integration is configured with
 >    secrets (Discord webhooks, ntfy token, CalDAV credentials, ICS feed
->    URL, Gitea token) and `MCP_API_KEY` is **not** set, the server
->    refuses to start.  It will not hold secrets while running open.
+>    URL, Gitea token, vital-pulse/penny-track API keys) and `MCP_API_KEY`
+>    is **not** set, the server refuses to start.  It will not hold
+>    secrets while running open.
 
 ## Architecture
 
@@ -257,6 +258,26 @@ features will be present.
 | Method | Path       | Description                                  |
 |--------|------------|----------------------------------------------|
 | GET    | `/weather` | Current conditions and multi-day forecast    |
+
+### Vital Pulse (when `VITAL_PULSE_URL` + `VITAL_PULSE_API_KEY` are set)
+
+| Method | Path                | Description                                  |
+|--------|---------------------|----------------------------------------------|
+| POST   | `/vital_readings`   | List health readings for a date range        |
+
+Registry command — requires `from` and `to` (both ISO 8601, inclusive).
+Use the vital-pulse **read-only** API key so the integration can query
+but never mutate health data.
+
+### Penny Track (when `PENNY_TRACK_URL` + `PENNY_TRACK_API_KEY` are set)
+
+| Method | Path                 | Description                                  |
+|--------|----------------------|----------------------------------------------|
+| POST   | `/penny_transactions`| List expense transactions for a date range   |
+
+Registry command — requires `from` and `to` (both ISO 8601, inclusive).
+Use the penny-track **read-only** API key (`app:api-key:create --read-only`)
+so the integration can query but never mutate transaction data.
 
 ### Example
 
@@ -541,10 +562,14 @@ mcp-server/
 │   └─ jobs.py                # Lightweight background job scheduler
 ├─ registry/                  # command definitions (one file per command)
 │   ├─ log.yaml               # logging command
-│   └─ log_read.yaml          # read log tail
+│   ├─ log_read.yaml          # read log tail
+│   ├─ vital_readings.yaml    # vital-pulse readings
+│   └─ penny_transactions.yaml # penny-track transactions
 ├─ scripts/                   # helper scripts referenced by registry YAMLs
 │   ├─ log.sh                 # append to log file
 │   ├─ log_read.sh            # read log tail
+│   ├─ vital_readings.sh      # query vital-pulse API
+│   ├─ penny_transactions.sh  # query penny-track API
 │   └─ config.sh.example      # template (unused in Docker; for reference)
 ├─ tests/                     # pytest test suite
 │   ├─ conftest.py
@@ -602,6 +627,10 @@ startup and conditionally registers endpoints.
 | `ICS_REFRESH_INTERVAL`         | ICS            | Cache refresh interval in seconds (default 300)|
 | `GITEA_URL`                    | Gitea          | Gitea server URL                               |
 | `GITEA_TOKEN`                  | Gitea          | API token                                      |
+| `VITAL_PULSE_URL`              | Vital Pulse    | vital-pulse base URL (enables `vital_readings`)|
+| `VITAL_PULSE_API_KEY`          | Vital Pulse    | vital-pulse API key (read-only recommended)    |
+| `PENNY_TRACK_URL`              | Penny Track    | penny-track base URL (enables `penny_transactions`)|
+| `PENNY_TRACK_API_KEY`          | Penny Track    | penny-track API key (read-only recommended)    |
 | `GITEA_DEFAULT_OWNER`          | Gitea          | Default repo owner                             |
 | `GITEA_DEFAULT_REPO`           | Gitea          | Default repo name                              |
 | `DISCORD_*_HOOK`               | Notify         | Discord webhook URLs (per severity level)      |

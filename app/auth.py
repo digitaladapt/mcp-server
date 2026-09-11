@@ -56,6 +56,8 @@ def _get_configured_key() -> str:
 # - ICS_CALENDAR_URL: published calendar feed URLs embed an unguessable
 #   token; possession of the URL is possession of the calendar.
 # - GITEA_TOKEN: Gitea API access token.
+# - VITAL_PULSE_API_KEY / PENNY_TRACK_API_KEY: API keys for the
+#   vital-pulse / penny-track integrations.
 _DISCORD_HOOK_PATTERN = re.compile(r"^DISCORD_.*_HOOK$")
 
 _SECRET_ENV_VARS = (
@@ -64,6 +66,8 @@ _SECRET_ENV_VARS = (
     "CALDAV_PASSWORD",
     "ICS_CALENDAR_URL",
     "GITEA_TOKEN",
+    "VITAL_PULSE_API_KEY",
+    "PENNY_TRACK_API_KEY",
 )
 
 
