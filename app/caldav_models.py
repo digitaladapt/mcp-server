@@ -269,6 +269,7 @@ class UpdateTaskRequest(BaseModel):
     categories: list[str] | None = None
     alarms: list[AlarmSpec] | None = None
     enable_alarms: bool | None = None
+    clear_due: bool = False
 
     @field_validator("priority")
     @classmethod

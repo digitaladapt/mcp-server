@@ -2487,6 +2487,78 @@ class TestTaskPercentComplete:
         assert result.percent_complete == 100
         assert result.status == "COMPLETED"
 
+    def test_update_task_clear_due_flag(self) -> None:
+        """clear_due=True must remove the DUE property (no 400, no stale date)."""
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Todo as ICalTodo
+
+        from app.caldav_models import CalDAVConfig, UpdateTaskRequest
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        todo = ICalTodo()
+        todo.add("uid", "cd-upd")
+        todo.add("dtstamp", datetime(2026, 1, 1, tzinfo=UTC))
+        todo.add("summary", "Task")
+        todo.add("due", datetime(2026, 9, 20, 11, 30, tzinfo=UTC))
+        ical.add_component(todo)
+
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_target = MagicMock()
+        mock_target.data = ical.to_ical().decode("utf-8")
+        mock_target.save = MagicMock()
+        mock_target.icalendar_component = None
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        svc._calendars_cache = [mock_cal]
+        svc._find_by_uid = MagicMock(return_value=mock_target)
+
+        req = UpdateTaskRequest(clear_due=True)
+        result = svc.update_task("cd-upd", req)
+        assert result.due == ""
+
+        # Verify the saved ICS genuinely has no DUE property.
+        mock_target.save.assert_called_once()
+        assert "DUE" not in mock_target.data.upper()
+
+    def test_update_task_clear_due_via_empty_string(self) -> None:
+        """due="" must be treated as clear (not a parse error / 400)."""
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Todo as ICalTodo
+
+        from app.caldav_models import CalDAVConfig, UpdateTaskRequest
+        from app.caldav_service import CalDAVService
+
+        ical = ICalCalendar()
+        todo = ICalTodo()
+        todo.add("uid", "cd-empty")
+        todo.add("dtstamp", datetime(2026, 1, 1, tzinfo=UTC))
+        todo.add("summary", "Task")
+        todo.add("due", datetime(2026, 9, 20, 11, 30, tzinfo=UTC))
+        ical.add_component(todo)
+
+        mock_cal = MagicMock()
+        mock_cal.get_display_name.return_value = "Lyra"
+        mock_target = MagicMock()
+        mock_target.data = ical.to_ical().decode("utf-8")
+        mock_target.save = MagicMock()
+        mock_target.icalendar_component = None
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        svc._calendars_cache = [mock_cal]
+        svc._find_by_uid = MagicMock(return_value=mock_target)
+
+        req = UpdateTaskRequest(due="")
+        result = svc.update_task("cd-empty", req)
+        assert result.due == ""
+
     def test_parse_task_percent_complete(self) -> None:
         from icalendar import Calendar as ICalCalendar
         from icalendar import Todo as ICalTodo

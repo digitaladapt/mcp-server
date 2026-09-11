@@ -354,10 +354,12 @@ async def update_task(
     categories: list[str] | None = None,
     alarms: list[dict] | None = None,
     enable_alarms: bool | None = None,
+    clear_due: bool = False,
 ) -> dict[str, Any]:
     """Update an existing calendar task.
 
-    Only provided fields are changed.
+    Only provided fields are changed.  To remove the due date, pass
+    ``clear_due=True`` (or ``due=""``); ``due`` omitted means unchanged.
 
     Args:
         uid: The task UID.
@@ -370,6 +372,7 @@ async def update_task(
         categories: New category list.
         alarms: Replace alarms; None preserves existing.
         enable_alarms: False removes all alarms.
+        clear_due: True removes the due date (an empty string ``due`` does too).
     """
     from .caldav_models import UpdateTaskRequest
     from .caldav_routes import _get_service as _get_caldav_service
@@ -378,7 +381,7 @@ async def update_task(
     req = UpdateTaskRequest(
         summary=summary, description=description, due=due, priority=priority,
         status=status, percent_complete=percent_complete, categories=categories,
-        alarms=alarms, enable_alarms=enable_alarms,
+        alarms=alarms, enable_alarms=enable_alarms, clear_due=clear_due,
     )
     svc = _get_caldav_service()
     try:
