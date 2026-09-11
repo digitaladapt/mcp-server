@@ -21,7 +21,7 @@ from __future__ import annotations
 import functools
 import logging
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from typing import Any
 
 import caldav
@@ -1138,17 +1138,63 @@ class CalDAVService:
 
     @staticmethod
     def _format_dt(dt_obj: Any) -> str:
-        """Format an icalendar date/datetime property as ISO 8601 string."""
+        """Format an icalendar date/datetime property as ISO 8601 string.
+
+        When icalendar parses a datetime stored with a TZID parameter it
+        can return a *naive* ``datetime`` (e.g. ``DTSTART;TZID="UTC-04:00"``),
+        which would silently drop the UTC offset from the output.  We
+        reconstruct the offset from the TZID parameter so timed values
+        always keep their timezone information.
+        """
         if dt_obj is None:
             return ""
+        tzid = None
+        if hasattr(dt_obj, "params") and dt_obj.params is not None:
+            tzid = dt_obj.params.get("TZID")
         # icalendar properties often have a .dt attribute
         if hasattr(dt_obj, "dt"):
             dt_obj = dt_obj.dt
+            if (
+                isinstance(dt_obj, datetime)
+                and dt_obj.tzinfo is None
+                and tzid is not None
+            ):
+                dt_obj = CalDAVService._apply_tzid(dt_obj, str(tzid))
         if isinstance(dt_obj, datetime):
             return dt_obj.isoformat()
         if isinstance(dt_obj, date):
             return dt_obj.isoformat()
         return str(dt_obj)
+
+    @staticmethod
+    def _apply_tzid(dt: datetime, tzid: str) -> datetime:
+        """Attach a timezone to a naive datetime using a TZID string.
+
+        ``icalendar`` emits a non-IANA ``TZID`` (e.g. ``UTC-04:00``) for
+        fixed-offset datetimes.  It cannot resolve those on parse, so the
+        value comes back naive.  Reconstruct a fixed-offset ``tzinfo`` from
+        the TZID so round-tripped values keep their UTC offset.
+        """
+        # Only handle fixed-offset pseudo-TZIDs (e.g. UTC-04:00, GMT+2:00).
+        name = tzid.strip()
+        if name.upper().startswith("UTC"):
+            sign = 1
+            rest = name[3:].strip()
+            if rest.startswith("-"):
+                sign = -1
+                rest = rest[1:]
+            elif rest.startswith("+"):
+                rest = rest[1:]
+            if rest:
+                try:
+                    hours = int(rest.split(":")[0])
+                    minutes = int(rest.split(":")[1]) if ":" in rest else 0
+                    return dt.replace(
+                        tzinfo=timezone(sign * timedelta(hours=hours, minutes=minutes))
+                    )
+                except (ValueError, IndexError):
+                    pass
+        return dt
 
     @staticmethod
     def _unwrap_dt(dt_obj: Any) -> datetime | date:

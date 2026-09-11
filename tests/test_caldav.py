@@ -706,6 +706,46 @@ class TestAllDayDetection:
         assert result is not None
         assert result.all_day is False
 
+    def test_parse_event_preserves_fixed_offset_tzid(self) -> None:
+        """Parse an event whose DTSTART carries a fixed-offset TZID.
+
+        Regression: icalendar serializes fixed-offset datetimes with a
+        pseudo-TZID (``TZID="UTC-04:00"``) and parses them back as a
+        *naive* datetime, which used to drop the ``-04:00`` from the
+        formatted output.  http round-trips must keep the offset.
+        """
+        from datetime import timedelta, timezone
+
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        tz = timezone(timedelta(hours=-4))
+        ev = ICalEvent()
+        ev.add("uid", "tz-parse-test")
+        ev.add("summary", "Fixed Offset Meeting")
+        ev.add("dtstart", datetime(2026, 9, 11, 16, 30, tzinfo=tz))
+        ev.add("dtend", datetime(2026, 9, 11, 17, 0, tzinfo=tz))
+        cal = ICalCalendar()
+        cal.add_component(ev)
+
+        # icalendar round-trip: serialize then re-parse so the property
+        # carries TZID="UTC-04:00" and a naive .dt (the broken path).
+        raw = cal.to_ical().decode("utf-8")
+        mock_obj = MagicMock()
+        mock_obj.icalendar_component = ICalCalendar.from_ical(raw)
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://ex.com", username="u", password="p",
+            editable_calendar="Lyra",
+        ))
+        result = svc._parse_event(mock_obj, "Lyra", True)
+        assert result is not None
+        assert result.start == "2026-09-11T16:30:00-04:00"
+        assert result.end == "2026-09-11T17:00:00-04:00"
+
 
 class TestUUIDGeneration:
     """Tests that create_event and create_task generate explicit UUIDs."""
@@ -1378,6 +1418,101 @@ class TestDatetimeHelpers:
             CalDAVService._unwrap_dt("not a date")
 
 
+class TestDateTimeTimezoneRoundTrip:
+    """Regression tests for timezone preservation in datetime round-trips.
+
+    ``icalendar`` serializes fixed-offset datetimes as a pseudo-TZID
+    (``TZID="UTC-04:00"``) and parses them back as *naive* datetimes,
+    which silently drops the UTC offset from the API output.  These tests
+    lock in that the offset is preserved through ``_parse_dt`` and
+    ``_format_dt``.
+    """
+
+    def test_parse_dt_preserves_offset(self) -> None:
+        from app.caldav_service import CalDAVService
+        dt = CalDAVService._parse_dt("2026-09-11T16:30:00-04:00")
+        assert isinstance(dt, datetime)
+        assert dt.isoformat() == "2026-09-11T16:30:00-04:00"
+
+    def test_parse_dt_utc_z(self) -> None:
+        from app.caldav_service import CalDAVService
+        dt = CalDAVService._parse_dt("2026-09-11T16:30:00Z")
+        assert isinstance(dt, datetime)
+        assert dt.isoformat() == "2026-09-11T16:30:00+00:00"
+
+    def test_parse_dt_naive(self) -> None:
+        from app.caldav_service import CalDAVService
+        dt = CalDAVService._parse_dt("2026-09-11T16:30:00")
+        assert isinstance(dt, datetime)
+        assert dt.tzinfo is None
+
+    def test_format_dt_naive_datetime(self) -> None:
+        from app.caldav_service import CalDAVService
+        dt = datetime(2026, 9, 11, 16, 30)  # noqa: DTZ001
+        assert CalDAVService._format_dt(dt) == "2026-09-11T16:30:00"
+
+    def test_format_dt_aware_datetime(self) -> None:
+        from app.caldav_service import CalDAVService
+        dt = datetime(2026, 9, 11, 16, 30, tzinfo=UTC)
+        assert CalDAVService._format_dt(dt) == "2026-09-11T16:30:00+00:00"
+
+    def test_format_dt_date(self) -> None:
+        from app.caldav_service import CalDAVService
+        assert CalDAVService._format_dt(date(2026, 9, 11)) == "2026-09-11"
+
+    def test_format_dt_icalendar_prop_naive_dt_keeps_tzid_offset(self) -> None:
+        """Recover the UTC offset when icalendar returns naive .dt + TZID."""
+        from datetime import timedelta, timezone
+
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        from app.caldav_service import CalDAVService
+
+        # Fixed-offset tzinfo is what fromisoformat produces for "-04:00"
+        # and what icalendar cannot round-trip without a VTIMEZONE.
+        tz = timezone(timedelta(hours=-4))
+        cal = ICalCalendar()
+        ev = ICalEvent()
+        ev.add("uid", "tz-test")
+        ev.add("dtstart", datetime(2026, 9, 11, 16, 30, tzinfo=tz))
+        ev.add("dtend", datetime(2026, 9, 11, 17, 0, tzinfo=tz))
+        cal.add_component(ev)
+
+        # Serialize to ical, then re-parse to force the pseudo-TZID path
+        data = cal.to_ical().decode("utf-8")
+        cal2 = ICalCalendar.from_ical(data)
+        ev2 = next(iter(cal2.walk("VEVENT")))
+        prop = ev2.get("dtstart")
+
+        # Confirm the naive .dt + TZID scenario exists (so the test is real)
+        assert getattr(prop, "dt", None).tzinfo is None
+        assert prop.params.get("TZID") is not None
+
+        formatted = CalDAVService._format_dt(prop)
+        assert formatted == "2026-09-11T16:30:00-04:00"
+
+    def test_apply_tzid_utc_offset(self) -> None:
+        from app.caldav_service import CalDAVService
+        dt = datetime(2026, 9, 11, 16, 30)  # noqa: DTZ001
+        result = CalDAVService._apply_tzid(dt, "UTC-04:00")
+        assert result.tzinfo is not None
+        assert result.isoformat() == "2026-09-11T16:30:00-04:00"
+
+    def test_apply_tzid_utc_positive(self) -> None:
+        from app.caldav_service import CalDAVService
+        dt = datetime(2026, 9, 11, 16, 30)  # noqa: DTZ001
+        result = CalDAVService._apply_tzid(dt, "UTC+02:00")
+        assert result.isoformat() == "2026-09-11T16:30:00+02:00"
+
+    def test_apply_tzid_unknown_returns_naive(self) -> None:
+        from app.caldav_service import CalDAVService
+        dt = datetime(2026, 9, 11, 16, 30)  # noqa: DTZ001
+        result = CalDAVService._apply_tzid(dt, "America/New_York")
+        # IANA zones are resolved by icalendar itself; leave naive as-is
+        assert result.tzinfo is None
+
+
 class TestClientCalendarMethods:
     """Tests for the new calendar/event/task client methods."""
 
@@ -1672,6 +1807,22 @@ class TestCreateEventAlarms:
             start="2026-01-15T10:00:00",
             end="2026-01-15T11:00:00",
             enable_alarms=False,
+        )
+        result = service.create_event(req)
+
+        assert len(result.alarms) == 0
+
+        saved_data = mock_cal.save_event.call_args[0][0]
+        assert "VALARM" not in saved_data
+
+    def test_no_alarm_when_explicit_empty_list(self, mock_service) -> None:
+        """An explicit alarms=[] should suppress the default alarm."""
+        service, mock_cal = mock_service
+        req = CreateEventRequest(
+            summary="Quiet Meeting 2",
+            start="2026-01-15T10:00:00",
+            end="2026-01-15T11:00:00",
+            alarms=[],
         )
         result = service.create_event(req)
 

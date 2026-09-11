@@ -28,6 +28,7 @@ from .gitea_models import (
     CommentDetail,
     CommitInfo,
     CommitStatus,
+    CompareCommit,
     CompareResult,
     FileChange,
     GiteaConfig,
@@ -233,16 +234,72 @@ def _parse_file_change(data: dict[str, Any]) -> FileChange:
     )
 
 
+def _parse_compare_commit(data: dict[str, Any]) -> CompareCommit:
+    """Parse a single commit from Gitea's compare response.
+
+    The API returns per-commit ``stats`` ({total, additions, deletions})
+    and ``files`` ([{filename, status}]) on each commit — but NOT per-file
+    additions/deletions.  Missing ``stats``/``files`` are tolerated so a
+    Gitea upgrade that stops including them degrades to zeros rather than
+    raising.
+    """
+    commit_data = data.get("commit", {}) or {}
+    author_data = commit_data.get("author", {}) or {}
+    stats = data.get("stats") or {}
+    files = data.get("files") or []
+    return CompareCommit(
+        sha=data.get("sha", ""),
+        message=commit_data.get("message", ""),
+        author=author_data.get("name") or data.get("author", {}).get("login"),
+        author_email=author_data.get("email"),
+        date=author_data.get("date") or commit_data.get("author", {}).get("date"),
+        additions=int(stats.get("additions", 0) or 0),
+        deletions=int(stats.get("deletions", 0) or 0),
+        files_changed=[_parse_file_change(f) for f in files],
+    )
+
+
+def _aggregate_files(changes: list[FileChange]) -> list[FileChange]:
+    """Deduplicate per-commit files into a single set, preserving order.
+
+    Gitea reports each commit's files; a file touched by multiple commits
+    appears multiple times.  Merge by (filename, status) keeping the first
+    occurrence order (status can legitimately differ per commit — first-seen
+    wins, which is the dominant outcome).
+    """
+    seen: set[tuple[str, str]] = set()
+    merged: list[FileChange] = []
+    for change in changes:
+        key = (change.filename, change.status)
+        if key in seen:
+            continue
+        seen.add(key)
+        merged.append(change)
+    return merged
+
+
 def _parse_compare(data: dict[str, Any], base: str, head: str) -> CompareResult:
-    files = data.get("files", [])
+    """Parse a Gitea 1.19+ compare response into a :class:`CompareResult`.
+
+    Gitea's ``/compare`` returns ``{total_commits, commits[]}`` where each
+    commit carries ``stats`` and ``files`` — there are NO top-level
+    ``files``/``behind_by``/``total_additions`` fields (that's the
+    GitHub-style shape).  This parser therefore derives everything from
+    the commit list, so it works across Gitea versions.
+    """
+    raw_commits = data.get("commits") or []
+    commits = [_parse_compare_commit(c) for c in raw_commits]
+    files = _aggregate_files([f for c in commits for f in c.files_changed])
     return CompareResult(
         base=base,
         head=head,
-        commits_ahead=data.get("total_commits", 0),
-        commits_behind=data.get("behind_by", 0),
-        files_changed=[_parse_file_change(f) for f in files],
-        total_additions=data.get("total_additions", sum(f.get("additions", 0) for f in files)),
-        total_deletions=data.get("total_deletions", sum(f.get("deletions", 0) for f in files)),
+        commits_ahead=int(data.get("total_commits", len(commits)) or len(commits)),
+        # Never assumed present; derived in compare() via reversed compare.
+        commits_behind=None,
+        commits=commits,
+        files_changed=files,
+        total_additions=sum(c.additions for c in commits),
+        total_deletions=sum(c.deletions for c in commits),
     )
 
 
@@ -885,7 +942,14 @@ class GiteaService:
         owner: str | None = None,
         repo: str | None = None,
     ) -> CompareResult:
-        """Compare two refs (branches, tags, or SHAs)."""
+        """Compare two refs (branches, tags, or SHAs).
+
+        Gitea's compare response only reports commits *ahead* of base.
+        ``commits_behind`` is derived by running a reversed compare
+        (``head...base``) and reading its ``total_commits``; if that
+        fails (e.g. unrelated histories) it is left ``None`` rather than
+        being reported as a wrong ``0``.
+        """
         path = f"{self._repo_path(owner, repo)}/compare/{base}...{head}"
         try:
             data = self._request("GET", path)
@@ -893,6 +957,36 @@ class GiteaService:
             if "Not found" in str(exc):
                 raise GiteaError(f"Comparison not found: {base}...{head}") from exc
             raise
-        return _parse_compare(data, base, head)
+
+        result = _parse_compare(data, base, head)
+        result.commits_behind = self._compare_behind(base, head, owner=owner, repo=repo)
+        return result
+
+    def _compare_behind(
+        self,
+        base: str,
+        head: str,
+        *,
+        owner: str | None = None,
+        repo: str | None = None,
+    ) -> int | None:
+        """Best-effort behind-count via a reversed compare.
+
+        Returns ``None`` when the reversed compare fails (unrelated
+        histories, missing ref, transient error) so callers never see a
+        made-up ``0``.
+        """
+        try:
+            path = f"{self._repo_path(owner, repo)}/compare/{head}...{base}"
+            data = self._request("GET", path)
+        except GiteaError:
+            return None
+        if not isinstance(data, dict):
+            return None
+        value = data.get("total_commits")
+        try:
+            return int(value) if value is not None else None
+        except (TypeError, ValueError):
+            return None
 
 
