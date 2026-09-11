@@ -1104,6 +1104,154 @@ class TestConnectionRecovery:
         assert result[0].name == "Lyra"
 
 
+class TestRecurringEventParsing:
+    """Regression tests for recurring CalDAV events.
+
+    ``search(expand=True)`` returns each occurrence as a separate object
+    with the same UID but a RECURRENCE-ID.  The parsed CalendarEvent must
+    give each occurrence a composite UID so the provider registry does
+    not collapse them into one.
+    """
+
+    @staticmethod
+    def _occurrence(
+        uid: str = "recurring-1@test",
+        *,
+        dtstart: str = "2026-09-04T09:00:00+00:00",
+        dtend: str = "2026-09-04T10:00:00+00:00",
+        with_recurrence_id: bool = True,
+    ):
+        from datetime import datetime
+
+        from icalendar import Calendar as ICalCalendar
+        from icalendar import Event as ICalEvent
+
+        ev = ICalEvent()
+        ev.add("uid", uid)
+        ev.add("summary", "Containers with Friends")
+        ev.add("dtstart", datetime.fromisoformat(dtstart))
+        ev.add("dtend", datetime.fromisoformat(dtend))
+        if with_recurrence_id:
+            ev.add("recurrence-id", datetime.fromisoformat(dtstart))
+        cal = ICalCalendar()
+        cal.add_component(ev)
+
+        mock_obj = MagicMock()
+        mock_obj.icalendar_component = cal
+        return mock_obj
+
+    def test_parse_event_occurrence_gets_composite_uid(self) -> None:
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        ))
+        parsed = svc._parse_event(
+            self._occurrence(), "Lyra", True
+        )
+        assert parsed is not None
+        assert parsed.uid == "recurring-1@test__2026-09-04T09:00:00+00:00"
+        assert parsed.recurrence_id is not None
+        assert parsed.start.startswith("2026-09-04")
+
+    def test_parse_event_master_keeps_plain_uid(self) -> None:
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        svc = CalDAVService(CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        ))
+        parsed = svc._parse_event(
+            self._occurrence(with_recurrence_id=False), "Lyra", False
+        )
+        assert parsed is not None
+        assert parsed.uid == "recurring-1@test"
+        assert parsed.recurrence_id is None
+
+    def test_list_events_returns_all_occurrences(self) -> None:
+        """End-to-end through CalDAVService.list_events with mocked cal."""
+        from datetime import UTC, datetime
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        service = CalDAVService(CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        ))
+        cal = MagicMock()
+        cal.get_display_name.return_value = "Lyra"
+        cal.search.return_value = [
+            self._occurrence(dtstart="2026-09-04T09:00:00+00:00"),
+            self._occurrence(dtstart="2026-09-11T09:00:00+00:00"),
+            self._occurrence(dtstart="2026-09-18T09:00:00+00:00"),
+            self._occurrence(dtstart="2026-09-25T09:00:00+00:00"),
+        ]
+        with patch.object(service, "_get_target_calendars", return_value=[cal]):
+            events = service.list_events(
+                start=datetime(2026, 9, 1, tzinfo=UTC),
+                end=datetime(2026, 9, 30, tzinfo=UTC),
+            )
+
+        assert len(events) == 4
+        uids = {e.uid for e in events}
+        assert len(uids) == 4  # all distinct
+        assert all(e.uid != "recurring-1@test" for e in events)
+
+    def test_split_composite_uid(self) -> None:
+        from app.caldav_service import CalDAVService
+
+        base, start = CalDAVService._split_composite_uid(
+            "recurring-1@test__2026-09-04T09:00:00+00:00"
+        )
+        assert base == "recurring-1@test"
+        assert start is not None
+        assert start.isoformat() == "2026-09-04T09:00:00+00:00"
+
+        base, start = CalDAVService._split_composite_uid("plain-uid@test")
+        assert base == "plain-uid@test"
+        assert start is None
+
+    def test_get_event_composite_uid(self) -> None:
+        """get_event with a composite UID searches a narrow window and finds
+        the matching occurrence."""
+        from datetime import UTC, datetime
+
+        from app.caldav_models import CalDAVConfig
+        from app.caldav_service import CalDAVService
+
+        service = CalDAVService(CalDAVConfig(
+            url="https://caldav.example.com",
+            username="user",
+            password="pass",
+            editable_calendar="Lyra",
+        ))
+        cal = MagicMock()
+        cal.get_display_name.return_value = "Lyra"
+        cal.search.return_value = [
+            self._occurrence(dtstart="2026-09-11T09:00:00+00:00"),
+        ]
+        with patch.object(service, "_get_target_calendars", return_value=[cal]):
+            event = service.get_event("recurring-1@test__2026-09-11T09:00:00+00:00")
+
+        assert event is not None
+        assert event.uid == "recurring-1@test__2026-09-11T09:00:00+00:00"
+        assert event.start.startswith("2026-09-11")
+        # The narrow-window search should have been issued
+        call_kwargs = cal.search.call_args.kwargs
+        assert call_kwargs["start"] == datetime(2026, 9, 11, 8, 59, tzinfo=UTC)
+        assert call_kwargs["end"] == datetime(2026, 9, 11, 9, 1, tzinfo=UTC)
+
+
 class TestExtractComponent:
     """Tests for the _extract_component shared helper."""
 

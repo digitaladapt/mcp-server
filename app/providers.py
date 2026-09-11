@@ -121,13 +121,19 @@ class ProviderRegistry:
     ) -> list[CalendarEvent]:
         """Fan out across all providers, merge, sort, and deduplicate.
 
-        Events are sorted by start time.  Duplicates (same UID) are
-        removed, keeping the first occurrence (editable providers are
-        iterated first to ensure the editable version wins).
+        Events are sorted by start time.  Duplicates (same UID **and**
+        same start) are removed, keeping the first occurrence
+        (editable providers are iterated first to ensure the editable
+        version wins).
+
+        Deduplication keys on ``(uid, start)`` rather than ``uid``
+        alone because recurrence expansion yields multiple occurrences
+        that share one UID (each with a distinct start); deduping on
+        UID only would silently drop every occurrence after the first.
         """
         # Iterate editable providers first so their version of a
         # duplicated event is kept.
-        seen_uids: set[str] = set()
+        seen: set[tuple[str, str]] = set()
         all_events: list[CalendarEvent] = []
 
         for provider in self._providers:
@@ -140,9 +146,10 @@ class ProviderRegistry:
                 )
                 continue
             for ev in events:
-                if ev.uid in seen_uids:
+                key = (ev.uid, ev.start)
+                if key in seen:
                     continue
-                seen_uids.add(ev.uid)
+                seen.add(key)
                 all_events.append(ev)
 
         all_events.sort(key=lambda e: e.start)

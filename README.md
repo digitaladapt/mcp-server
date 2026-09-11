@@ -659,6 +659,11 @@ When `CALDAV_URL` is not set, calendar endpoints are not registered.
   and cached, avoiding redundant server round-trips.
 - **Explicit UUIDs:** created events and tasks always get a `uuid4` UID,
   guaranteeing they can be updated or deleted immediately after creation.
+- **Recurrence expansion:** recurring events are expanded into individual
+  occurrences when a date range is given.  Each occurrence gets a composite
+  UID of the form `{original_uid}__{start_iso}` so every instance is
+  addressable (e.g. via `GET /events/{uid}`) and nothing is lost in the
+  merged result.
 
 ## ICS Calendar (read-only)
 
