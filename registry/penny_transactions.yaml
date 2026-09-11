@@ -1,0 +1,31 @@
+# penny_transactions.yaml – query penny-track receipts.
+#
+# Calls the penny-track REST API (GET /api/receipts) for a date range.
+# Required configuration:
+#   PENNY_TRACK_URL     – base URL of the penny-track instance (e.g. http://penny:80)
+#   PENNY_TRACK_API_KEY – API key (use a read-only API key if one exists)
+#
+# Both from and to are required so the model always bounds the query —
+# "every transaction ever" is deliberately not offered.
+#
+# field_name aliases: "from"/"to" are Python reserved words, so the tool
+# surface exposes from_date/to_date while the script still receives the
+# positional from/to values.
+
+name: penny_transactions
+description: List expense transactions (amount, business, category, tags, notes) from penny-track for an inclusive date range.
+executable: scripts/penny_transactions.sh
+requires:
+  - "PENNY_TRACK_URL"
+  - "PENNY_TRACK_API_KEY"
+args:
+  - name: from
+    field_name: from_date
+    type: string
+    required: true
+    help: Start of the date range (ISO 8601, inclusive), e.g. 2025-01-01.
+  - name: to
+    field_name: to_date
+    type: string
+    required: true
+    help: End of the date range (ISO 8601, inclusive), e.g. 2025-01-31.

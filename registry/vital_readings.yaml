@@ -1,0 +1,31 @@
+# vital_readings.yaml – query vital-pulse health log readings.
+#
+# Calls the vital-pulse REST API (GET /api/v1/logs) for a date range.
+# Required configuration:
+#   VITAL_PULSE_URL     – base URL of the vital-pulse instance (e.g. http://vitals:8080)
+#   VITAL_PULSE_API_KEY – API key (use the READ_ONLY_API_KEY if configured)
+#
+# Both from and to are required so the model always bounds the query —
+# "every reading ever" is deliberately not offered.
+#
+# field_name aliases: "from"/"to" are Python reserved words, so the tool
+# surface exposes from_date/to_date while the script still receives the
+# positional from/to values.
+
+name: vital_readings
+description: List health log readings (blood pressure, heart rate, weight) from vital-pulse for an inclusive date range.
+executable: scripts/vital_readings.sh
+requires:
+  - "VITAL_PULSE_URL"
+  - "VITAL_PULSE_API_KEY"
+args:
+  - name: from
+    field_name: from_date
+    type: string
+    required: true
+    help: Start of the date range (ISO 8601, inclusive), e.g. 2025-01-01.
+  - name: to
+    field_name: to_date
+    type: string
+    required: true
+    help: End of the date range (ISO 8601, inclusive), e.g. 2025-01-31.
