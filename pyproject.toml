@@ -42,6 +42,10 @@ filterwarnings = [
     # Starlette's TestClient emits a deprecation warning about httpx
     # usage; ignore it until we migrate to httpx's native ASGI transport.
     "ignore::starlette.exceptions.StarletteDeprecationWarning",
+    # anyio>=4.15 deprecates anyio.abc.BlockingPortal; starlette.testclient
+    # still imports it at collection time.  Third-party deprecation —
+    # ignore until starlette migrates.
+    "ignore:The anyio.abc.BlockingPortal alias is deprecated:DeprecationWarning",
 ]
 
 [tool.ruff]
