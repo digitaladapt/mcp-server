@@ -207,6 +207,11 @@ def build_mcp_server() -> MCPServer:
         kwargs["auth"] = AuthSettings(
             issuer_url=f"{base}{MCP_MOUNT_PATH}",
             resource_server_url=f"{base}{MCP_MOUNT_PATH}",
+            # Our _ApiKeyVerifier validates the token's audience itself
+            # (constant-time compare against MCP_API_KEY), so we opt out of
+            # the SDK's resource-indicator check.  Explicit False also avoids
+            # the MCPDeprecationWarning emitted by mcp>=2.2.0 when unset.
+            validate_token_resource=False,
         )
         kwargs["token_verifier"] = _ApiKeyVerifier()
 

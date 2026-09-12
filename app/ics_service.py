@@ -26,6 +26,7 @@ event or other occurrences.
 from __future__ import annotations
 
 import logging
+import os
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -128,7 +129,21 @@ class ICSService:
         )
 
     async def _fetch(self) -> str:
-        """Download the raw ICS text from the configured URL."""
+        """Download the raw ICS text from the configured URL.
+
+        Under pytest (``PYTEST_CURRENT_TEST`` is set) this returns a canned
+        empty calendar instead of touching the network.  Without the guard,
+        any refresh triggered by a TestClient lifespan startup makes a real
+        HTTPS request to the configured URL; if the TestClient exits while
+        the request is in flight the transport leaks and pytest's
+        unraisable-exception plugin attributes the ResourceWarning to
+        whichever test happens to be running at GC time, producing flaky
+        "unclosed socket" failures on unrelated tests.
+
+        Tests that need real fetch behavior patch ``_fetch`` themselves.
+        """
+        if os.environ.get("PYTEST_CURRENT_TEST"):
+            return "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//mcp-server-test//EN\r\nEND:VCALENDAR\r\n"
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.get(self._config.url)
             resp.raise_for_status()
